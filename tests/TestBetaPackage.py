@@ -124,6 +124,21 @@ class TestBetaPackage(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, '路径无效'):
                 verify_bundle(app)
 
+    def test_dotted_release_name_is_preserved_in_archive_and_collision_guard(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            app, framework = self.fixture_package(root)
+            output = root / 'ok-ww-macos-beta-0.1.0-beta.1'
+            archive = root / (output.name + '.zip')
+            with patch('scripts.build_macos_beta.git_metadata', return_value={'base_commit': 'abc', 'working_tree_dirty': True}):
+                build(app, framework, output, '0.1.0-beta.1')
+            self.assertTrue(archive.is_file())
+            self.assertFalse(output.with_suffix('.zip').exists())
+            # A preserved ZIP alone also blocks replacement when its directory was moved.
+            output.rename(root / 'preserved-unpacked-copy')
+            with self.assertRaises(FileExistsError):
+                build(app, framework, output, '0.1.0-beta.1')
+
 
 if __name__ == '__main__':
     unittest.main()

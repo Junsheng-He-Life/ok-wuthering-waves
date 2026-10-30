@@ -123,7 +123,8 @@ release-manifest.json 记录配套源码与文件哈希，不包含个人账号�
 
 def build(app, framework, destination, version, archive=True):
     app, framework, destination = Path(app).resolve(), Path(framework).resolve(), Path(destination).resolve()
-    if destination.exists() or destination.with_suffix('.zip').exists():
+    archive_path = destination.parent / (destination.name + '.zip')
+    if destination.exists() or archive_path.exists():
         raise FileExistsError('输出已存在；请选择新版本目录，不覆盖现有发布包。')
     destination.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='.okww-beta-', dir=destination.parent) as temporary:
@@ -151,7 +152,7 @@ def build(app, framework, destination, version, archive=True):
         (stage / 'release-manifest.json').write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + '\n')
         stage.rename(destination)
     if archive:
-        with zipfile.ZipFile(destination.with_suffix('.zip'), 'w', zipfile.ZIP_DEFLATED) as zipped:
+        with zipfile.ZipFile(archive_path, 'w', zipfile.ZIP_DEFLATED) as zipped:
             for path in sorted(destination.rglob('*')):
                 if path.is_file():
                     zipped.write(path, path.relative_to(destination.parent))

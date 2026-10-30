@@ -54,7 +54,7 @@ Narrow windows switch to a single column. Page content scrolls while start, paus
 | Party gate | All three characters at level 80 or above and at least 85% HP, with confirmed identities and world level; equipment and skill investment are not automatically verified |
 | Panel | Minimum 920 × 600 logical pixels; several window sizes and 1×, 1.5× and 2× scaling checked offscreen |
 | Game capture | Configured for 16:9, 16:10 and 43:18, with a minimum capture of 1280 × 720; individual setups still need validation |
-| Public tests | [Published offline subset](docs/development.md): 111 application and 49 framework checks passed; reproducible from the matching source tags |
+| Public tests | [Published offline subset](docs/development.md): 112 application and 49 framework checks passed; reproducible from the matching source tags |
 | Software checks | **620 regression tests passed** in a fresh dependency environment; **49 macOS backend and startup-error tests passed**; Swift type checking passed |
 
 Installation and regression validation used one physical Mac. **Another Mac, a new account, the complete new-panel gameplay flow, real pause/interruption recovery, display switching during play and consecutive runs with multiple parties still require live acceptance testing.** Offline checks do not establish stable support for every character, stage, display or macOS version.
