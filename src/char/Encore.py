@@ -14,6 +14,14 @@ class Encore(BaseChar):
     def still_in_liberation(self):
         return self.time_elapsed_accounting_for_freeze(self.liberation_time) < 9.5
 
+    def record_liberation_use(self):
+        super().record_liberation_use()
+        policy = getattr(self.task, 'allow_opportunistic_skills', None)
+        if callable(policy) and policy():
+            # Echo's ready-skill hook can cast R outside do_perform. Start the
+            # enhanced-attack window only after that cast is confirmed too.
+            self.liberation_time = self.last_liberation
+
     def switch_out(self, con_full=False):
         super().switch_out(con_full=con_full)
         self.last_resonance = 0

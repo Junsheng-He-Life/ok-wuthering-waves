@@ -22,6 +22,9 @@ class Changli(BaseChar):
 
     def should_try_liberation(self):
         """Allow one bounded R probe when the orange icon lacks white pixels."""
+        if (self._echo_liberation_retry_enabled()
+                and time.monotonic() < getattr(self, '_liberation_retry_after', 0)):
+            return False
         if self.liberation_available():
             return True
         allow_immediate = getattr(
@@ -29,6 +32,7 @@ class Changli(BaseChar):
             'allow_immediate_visible_liberation',
             None,
         )
+
         return (
             callable(allow_immediate)
             and allow_immediate()
@@ -37,6 +41,10 @@ class Changli(BaseChar):
                 self.last_optimistic_liberation_attempt
             ) >= self.OPTIMISTIC_LIBERATION_RETRY_INTERVAL
         )
+
+    def _echo_liberation_retry_enabled(self):
+        policy = getattr(self.task, 'allow_opportunistic_skills', None)
+        return callable(policy) and policy() is True
 
     def get_switch_priority(self, current_char=None, has_intro=False, target_low_con=False):
         if has_intro and current_char and current_char.char_name in {'char_brant'}:
@@ -127,6 +135,10 @@ class Changli(BaseChar):
         return forte
 
     def liberation_and_heavy(self, con_less_than=-1, send_click=False, wait_if_cd_ready=0, timeout=5):
+        bounded_echo = self._echo_liberation_retry_enabled()
+        if bounded_echo and (not self.task.use_liberation or self.has_cd('liberation')
+                             or time.monotonic() < getattr(self, '_liberation_retry_after', 0)):
+            return False
         if con_less_than > 0:
             if self.get_current_con() > con_less_than:
                 return False
@@ -155,6 +167,8 @@ class Changli(BaseChar):
                 self.logger.info(
                     'Changli R probe had no effect; resume E and normal attacks'
                 )
+                if bounded_echo:
+                    self._liberation_retry_after = time.monotonic() + 2
                 return False
             self.record_liberation_use()
         while time.time() - start < wait_if_cd_ready and not self.liberation_available() and not self.has_cd(
@@ -164,8 +178,20 @@ class Changli(BaseChar):
                 self.click(interval=0.1)
             self.task.next_frame()
         while self.liberation_available() and self.task.in_team()[0]:  # clicked and still in team wait for animation
+            if bounded_echo:
+                # The old custom R loop bypassed BaseChar's bounded retry and
+                # its health guard. A noisy ready icon must leave attack time.
+                self.check_combat()
+                if not self.liberation_available():
+                    break
             self.logger.debug('click_liberation liberation_available click')
             now = time.time()
+            if bounded_echo and now - start > 1.2:
+                self.logger.info('Changli R did not start within 1.2s; resume attacks')
+                self.task.in_liberation = False
+                self._liberation_available = False
+                self._liberation_retry_after = time.monotonic() + 2
+                return False
             if now - last_click > 0.1:
                 self.send_liberation_key()
                 if not clicked:
@@ -176,12 +202,25 @@ class Changli(BaseChar):
                 self.task.raise_not_in_combat('too long clicking a liberation')
             self.task.next_frame()
         if clicked:
+            gap = getattr(self.task, 'last_guarded_hud_gap', None)
+            if (bounded_echo and isinstance(gap, tuple) and len(gap) == 2
+                    and gap[0] >= start and self.has_cd('liberation')):
+                # A health/target check may have already waited through the
+                # cinematic. Require its fresh HUD gap plus the resulting CD.
+                self.add_freeze_duration(gap[0], gap[1] - gap[0])
+                self.record_liberation_use()
+                self.task.in_liberation = False
+                if self.is_mouse_forte_full():
+                    self.heavy_attack()
+                return True
             if self.task.wait_until(lambda: not self.task.in_team()[0], time_out=0.4):
                 self.task.in_liberation = True
                 self.logger.debug('not in_team successfully casted liberation')
             else:
                 self.task.in_liberation = False
                 self.logger.error('clicked liberation but no effect')
+                if bounded_echo:
+                    self._liberation_retry_after = time.monotonic() + 2
                 return False
         start = time.time()
         hold = False

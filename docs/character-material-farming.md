@@ -5,7 +5,7 @@
 先启动 Mac 版《鸣潮》并进入大世界，然后在终端运行：
 
 ```bash
-cd /Users/junshenghe/Documents/Games/ok-wuthering-waves
+cd /Users/yourname/Documents/Games/ok-wuthering-waves
 PYTHONPATH="../ok-script:$PWD" ../ok-script/.venv313/bin/python main.py
 ```
 
@@ -32,7 +32,7 @@ PYTHONPATH="../ok-script:$PWD" ../ok-script/.venv313/bin/python main.py
   `5 Hz` 保存最新画面；战斗结束或任务异常退出时自动停止。
 
 调试帧保存到
-`/Users/junshenghe/Documents/Games/ok-wuthering-waves/screenshots/character_material_combat_frames`。
+`/Users/yourname/Documents/Games/ok-wuthering-waves/screenshots/character_material_combat_frames`。
 文件名以包含毫秒的时间戳开头，例如
 `11-50-02.123_frame_original.png`。截图通过现有异步写入队列保存，不会在战斗输入
 线程中执行 PNG 编码；由于记录的是识别循环最近取得的画面，极短时间内可能出现相邻
@@ -141,7 +141,7 @@ Fallback Stage Name:
 当前常用检查命令：
 
 ```bash
-cd /Users/junshenghe/Documents/Games/ok-wuthering-waves
+cd /Users/yourname/Documents/Games/ok-wuthering-waves
 tail -n 800 logs/ok-script.log
 rg "Aemeath|Changli|Mornye|switch_next_char|Concerto|click_liberation" \
   logs/ok-script.log
@@ -272,8 +272,8 @@ F 交互确实触发并进入战斗。因此当前结论是“进本与开战链
 
 ### 日志与失败截图
 
-- 日志：`/Users/junshenghe/Documents/Games/ok-wuthering-waves/logs/ok-script.log`
-- 截图目录：`/Users/junshenghe/Documents/Games/ok-wuthering-waves/screenshots`
+- 日志：`/Users/yourname/Documents/Games/ok-wuthering-waves/logs/ok-script.log`
+- 截图目录：`/Users/yourname/Documents/Games/ok-wuthering-waves/screenshots`
 - 找不到素材入口、挑战按钮或副本 F 时，先保留失败时的页面，不要手动切换界面，
   再结合日志末尾和对应自动截图定位。
 
@@ -528,7 +528,7 @@ import platform as py_platform
 4. 查看日志：
 
 ```bash
-cd /Users/junshenghe/Documents/Games/ok-wuthering-waves
+cd /Users/yourname/Documents/Games/ok-wuthering-waves
 tail -n 500 logs/ok-script.log
 ```
 

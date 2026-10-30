@@ -1,43 +1,50 @@
 ---
-name: '报告Bug'
-about: 遇到的问题
-title: "[BUG]不符合规范的ISSUE会自动关闭"
+name: '报告 Bug'
+about: '反馈 macOS 内测版的问题'
+title: '[Bug] '
 labels: bug
-assignees: ok-oldking
-
 ---
 
-先搜索现有ISSUE:
-[https://github.com/ok-oldking/ok-wuthering-waves/issues?q=](https://github.com/ok-oldking/ok-wuthering-waves/issues?q=)
+请先搜索 [本 fork 已有问题](https://github.com/Junsheng-He-Life/ok-wuthering-waves/issues)。
 
-请先挨个检查:
-[常见问题](https://github.com/ok-oldking/ok-wuthering-waves/blob/master/README_cn.md#出现问题请检查)
+## 问题描述
 
-讨论区
-[https://github.com/ok-oldking/ok-wuthering-waves/discussions](https://github.com/ok-oldking/ok-wuthering-waves/discussions)
+简述出现了什么问题，以及是否每次都能复现。
 
-描述错误:
-[请清晰简洁地描述错误是什么]
+## 版本与环境
 
-复现步骤：
+- OK-WW 版本、标签或提交：
+- 配套 ok-script 标签或提交：
+- Mac 型号与芯片：
+- macOS 版本：
+- 游戏语言：
 
+## 屏幕与窗口
 
-截图和日志:
-点击导出日志, 并上传.
+- 内置或外接显示器；多显示器时游戏所在屏幕：
+- 游戏画面分辨率、比例：
+- 系统显示缩放设置；已知时填写窗口点尺寸与采集像素尺寸：
+- 全屏或窗口模式：
+- 问题前是否移动窗口、换屏或更改缩放：
 
+## 队伍与任务
 
-是否必现:
-是/否/大概率/小概率
+- 当前三名成员及各自等级：
+- 索拉等级：
+- 任务模式与关卡：
+- 如涉及领奖或补给，本轮额度与待核对提示：
 
-录屏:
-最好有录屏上传QQ频道
+## 复现步骤
 
-ok-ww出现bug的版本：
-[如]1.1.1
+1. 起始游戏页面或状态：
+2. 在面板中执行的操作：
+3. 出现的问题：
 
-ok-ww最近未出现bug的版本：
-[如]1.1.1
+## 预期与实际结果
 
-windows操作系统:
-[例如] Windows 11 Pro 23H2 22631.3593
+- 预期：
+- 实际：
 
+## 脱敏诊断
+
+可附“异常与恢复”页导出的诊断包，以及面板显示的错误文字。上传前检查内容；不要附个人配置、原始日志、原始录屏、全屏原图或任何账号信息、UID、特征码、令牌、凭据。若需说明识别区域，仅提供清除账号信息与元数据后的必要裁剪。

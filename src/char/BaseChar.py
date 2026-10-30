@@ -272,7 +272,10 @@ class BaseChar:
 
     def click(self, *args: Any, **kwargs: Any):
         """执行一次点击操作 (代理到 task.click)。"""
-        kwargs['down_time'] = 0.01
+        # Native macOS games can poll input between the two events of a 10 ms
+        # click. Keep normal attacks down across several render frames.
+        import sys
+        kwargs['down_time'] = 0.08 if sys.platform == 'darwin' else 0.01
         self.task.click(*args, **kwargs)
 
     def do_perform(self):
@@ -587,8 +590,43 @@ class BaseChar:
         """
         if not self.task.use_liberation:
             return False
+        retry_policy = getattr(self.task, 'use_bounded_liberation_retry', None)
+        supervised_retry = (getattr(self.task, '_verified_battle', False)
+                            and callable(retry_policy) and retry_policy())
+        bounded_retry = (getattr(self.task, '_verified_battle', False)
+                         and (getattr(self.task, '_plan_boss', False) or supervised_retry))
+        retry_started = time.monotonic() if supervised_retry else None
+        metrics = None
+        if supervised_retry and isinstance(getattr(self.task, 'result', None), dict):
+            metrics = self.task.result.setdefault('bounded_liberation_retry', {})
+            metrics['attempts'] = metrics.get('attempts', 0) + 1
+            metrics['last_character'] = str(getattr(self, 'char_name', type(self).__name__))
+            metrics['last_started_monotonic_ns'] = int(retry_started * 1e9)
+            metrics['last_outcome'] = 'checking'
+
+        def report_retry(outcome):
+            if supervised_retry and outcome in ('retry_timeout', 'cast_unconfirmed'):
+                # After an unconfirmed press, leave a real attack window even
+                # if a noisy ready icon persists on the following frames.
+                self._liberation_retry_after = time.monotonic() + 2
+            if metrics is not None:
+                elapsed = round(time.monotonic() - retry_started, 4)
+                metrics.update(last_outcome=outcome, last_elapsed_seconds=elapsed)
+                if outcome == 'retry_timeout':
+                    metrics['retry_timeouts'] = metrics.get('retry_timeouts', 0) + 1
+                    metrics['max_retry_seconds'] = max(metrics.get('max_retry_seconds', 0), elapsed)
+                elif outcome == 'cooldown':
+                    metrics['cooldown_skips'] = metrics.get('cooldown_skips', 0) + 1
+
+        if supervised_retry and retry_started < getattr(self, '_liberation_retry_after', 0):
+            report_retry('backoff')
+            return False
+        if bounded_retry and self.has_cd('liberation'):
+            report_retry('cooldown')
+            return False
         if con_less_than > 0:
             if self.get_current_con() > con_less_than:
+                report_retry('concerto_gate')
                 return False
         self.logger.debug(f'click_liberation start')
         start = time.time()
@@ -597,11 +635,36 @@ class BaseChar:
         if not self.task.in_liberation:
             while self.liberation_available():  # clicked and still in team wait for animation
                 self.logger.debug(f'click_liberation liberation_available click')
+                if supervised_retry:
+                    # next_frame alone does not run the material health guard.
+                    # Its existing _boss_healing branch prevents recursive
+                    # rescue requests while still enforcing the rescue limit.
+                    if metrics is not None:
+                        metrics['guard_checks'] = metrics.get('guard_checks', 0) + 1
+                    try:
+                        self.check_combat()
+                    except Exception:
+                        report_retry('guard_interrupted')
+                        raise
+                    # The guard may have waited through a real cinematic and
+                    # refreshed the HUD; do not press R again on that old test.
+                    if not self.liberation_available():
+                        break
                 if send_click:
                     self.click(interval=0.1)
                 now = time.time()
+                if bounded_retry and now - start > 1.2:
+                    # A stale ready icon after a healer rescue must not leave
+                    # the character standing still retrying R for 15 seconds.
+                    self.logger.info('Liberation did not start within 1.2s; resume attacks')
+                    self.task.in_liberation = False
+                    self._liberation_available = False
+                    report_retry('retry_timeout')
+                    return False
                 if now - last_click > 0.1:
                     self.send_liberation_key()
+                    if metrics is not None:
+                        metrics['press_attempts'] = metrics.get('press_attempts', 0) + 1
                     if not clicked:
                         clicked = True
                     last_click = now
@@ -610,6 +673,19 @@ class BaseChar:
                     self.task.raise_not_in_combat('too long clicking a liberation')
                 self.task.next_frame()
             if clicked:
+                # A domain guard may already have waited through the cinematic
+                # during next_frame(). Require BOTH that fresh HUD gap and the
+                # resulting cooldown; sending R alone is not proof of a cast.
+                guarded_gap = getattr(self.task, 'last_guarded_hud_gap', None)
+                if (isinstance(guarded_gap, tuple) and len(guarded_gap) == 2
+                        and guarded_gap[0] >= start and self.has_cd('liberation')):
+                    self.add_freeze_duration(guarded_gap[0], guarded_gap[1] - guarded_gap[0])
+                    self.record_liberation_use()
+                    self.task.in_liberation = False
+                    self._liberation_available = False
+                    self.logger.info('liberation confirmed by guarded cinematic and cooldown')
+                    report_retry('confirmed_after_guarded_animation')
+                    return True
                 if self.task.wait_until(lambda: not self.task.in_team()[0], time_out=0.4,
                                         post_action=self.click_with_interval):
                     self.task.in_liberation = True
@@ -617,6 +693,7 @@ class BaseChar:
                 else:
                     self.task.in_liberation = False
                     self.logger.error(f'clicked liberation but no effect')
+                    report_retry('cast_unconfirmed')
                     return False
             else:
                 start = time.time()
@@ -626,6 +703,7 @@ class BaseChar:
                         self.task.in_liberation = True
                         self.logger.debug(f'not in_team successfully casted liberation')
                 if not self.task.in_liberation:
+                    report_retry('not_ready')
                     return False
         start = time.time()
         while not self.task.in_team()[0]:
@@ -645,6 +723,7 @@ class BaseChar:
         self._liberation_available = False
         if clicked:
             self.logger.info(f'click_liberation end {duration}')
+        report_retry('confirmed' if clicked else 'not_ready')
         return clicked
 
     def on_combat_end(self, chars):
@@ -817,8 +896,17 @@ class BaseChar:
             click_resonance_if_ready_and_return (bool, optional): 如果共鸣技能可用, 是否立即释放并返回。默认为 False。
             until_con_full (bool, optional): 是否持续攻击直到协奏值满。默认为 False。
         """
+        burst = getattr(self.task, 'native_attack_string', None)
+        if duration > 0 and not until_con_full and not click_resonance_if_ready_and_return and callable(burst):
+            import math
+            if burst(max(1, math.ceil(duration / (.08 + interval))), interval):
+                self.sleep(after_sleep)
+                return
         start = time.time()
         while time.time() - start < duration:
+            ready_skill = getattr(self.task, 'use_ready_combat_skill', None)
+            if callable(ready_skill) and ready_skill():
+                return
             if click_resonance_if_ready_and_return and self.resonance_available():
                 return self.click_resonance()
             if until_con_full and self.is_con_full():
@@ -871,8 +959,10 @@ class BaseChar:
         self.check_combat()
         self.logger.debug('heavy attack start')
         self.task.mouse_down()
-        self.sleep(duration)
-        self.task.mouse_up()
+        try:
+            self.sleep(duration)
+        finally:
+            self.task.mouse_up()
         self.sleep(0.01)
         self.logger.debug('heavy attack end')
 

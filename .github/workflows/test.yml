@@ -9,6 +9,7 @@ permissions:
 
 jobs:
   build:
+    if: ${{ github.repository == 'ok-oldking/ok-wuthering-waves' }}
     name: Build exe with launcher
     runs-on: windows-latest
 

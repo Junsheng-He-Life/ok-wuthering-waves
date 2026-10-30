@@ -31,11 +31,11 @@ MAIN_WORLD_PROBE_TIMEOUT = 3
 MAIN_WORLD_SETTLE_TIME = 0.25
 MAIN_MAX_BACK_ATTEMPTS = 3
 GUIDEBOOK_MENU_POSITION = (0.759, 0.05)
-GUIDEBOOK_TITLE_BOX = (0.03, 0.02, 0.28, 0.11)
+# Exclude the crossed-swords icon, which OCR can merge into the page title.
+GUIDEBOOK_TITLE_BOX = (0.052, 0.0, 0.30, 0.15)
 GUIDEBOOK_TITLE_TEXT = [
     re.compile(r'^索拉指南$'),
-    re.compile(r'^活跃行迹$'),
-    re.compile(r'^活躍行跡$'),
+    re.compile(r'^活[跃躍]行[迹跡]$'),
     re.compile(r'^漂泊日志$'),
     re.compile(r'^漂泊日誌$'),
     re.compile(r'^周期挑战$'),
@@ -45,7 +45,7 @@ GUIDEBOOK_TITLE_TEXT = [
     re.compile(r'^(Guidebook|Activity|Milestones|Material Acquisition)$', re.IGNORECASE),
 ]
 MATERIALS_GUIDE_POSITION = (0.039, 0.427)
-MATERIALS_TITLE_BOX = (0.00, 0.00, 0.18, 0.10)
+MATERIALS_TITLE_BOX = (0.052, 0.00, 0.18, 0.10)
 MATERIALS_TITLE_TEXT = [
     re.compile(r'^素材获取$'),
     re.compile(r'^素材獲取$'),
@@ -425,7 +425,13 @@ class BaseWWTask(BaseTask):
         return "w" if delta_y > 0 else "s"
 
     def find_treasure_icon(self):
-        return self.find_one('treasure_icon', box=self.box_of_screen(0.03, 0.1, 0.97, 0.81), threshold=0.8,
+        from ok.feature.Box import Box
+        # This marker moves in the 3D viewport; it is not a 16:9 HUD anchor.
+        # box_of_screen would omit the rightmost 880 px at 3440x1440.
+        width, height = self.width_of_screen(1), self.height_of_screen(1)
+        viewport = Box(round(.03 * width), round(.1 * height),
+                       round(.94 * width), round(.71 * height))
+        return self.find_one('treasure_icon', box=viewport, threshold=0.8,
                              target_height=720)
 
     def click(self, x=-1, y=-1, move_back=False, name=None, interval=-1, move=False, down_time=0.01, after_sleep=0,
@@ -434,7 +440,11 @@ class BaseWWTask(BaseTask):
             x = self.width_of_screen(0.5)
             y = self.height_of_screen(0.5)
             move = False
-            down_time = 0.01
+            # Coordinates are resolved here, before the native backend can
+            # distinguish an attack from a menu click. Preserve a reliable
+            # press duration through this facade instead of resetting it.
+            if sys.platform == 'darwin':
+                down_time = max(down_time, .08)
         else:
             down_time = 0.2
         return super().click(x, y, move_back, name, interval, move=move, down_time=down_time, after_sleep=after_sleep,
@@ -463,10 +473,20 @@ class BaseWWTask(BaseTask):
             frame_processor=convert_bw)
 
     def in_world(self):
-        return self.find_one('world_earth_icon', threshold=0.55,
-                             frame_processor=convert_bw) and self.in_team() and not self.find_one('illusive_realm_exit',
+        return self.find_world_earth_icon() and self.in_team()[0] and not self.find_one('illusive_realm_exit',
                                                                                                   threshold=0.7,
                                                                                                   frame_processor=convert_bw)
+
+    def find_world_earth_icon(self):
+        earth = self.find_one('world_earth_icon', threshold=.55,
+                              horizontal_variance=.02, vertical_variance=.02,
+                              frame_processor=convert_bw)
+        if not earth:
+            # macOS stream resampling softens the old 3840 reference below
+            # threshold. Use the observed 1920 icon rather than lowering it.
+            earth = self.find_one('macos_world_earth_1920', threshold=.8,
+                                  horizontal_variance=.005, vertical_variance=.005)
+        return earth
 
     def in_illusive_realm(self):
         return self.find_one('new_realm_4') and self.in_realm() and self.find_one('illusive_realm_menu', threshold=0.6)
@@ -491,29 +511,42 @@ class BaseWWTask(BaseTask):
             return True
 
     def get_stamina(self):
-        boxes = self.wait_ocr(
-            0.49,
-            0.0,
-            0.92,
-            0.10,
-            raise_if_not_found=False,
-            match=[number_re, stamina_re],
-            time_out=3,
-            settle_time=0.5,
-        )
-        if not boxes:
+        from src.task.WaveplateReading import parse_waveplates
+        last = []
+        def read_pair():
+            nonlocal last
+            last = self.ocr(.35, 0, .92, .10, threshold=.5) or []
+            result = parse_waveplates(last, self.width)
+            if result[0] < 0:
+                # Anchor the reserve crop to the observed current badge. A
+                # fixed crop can include part of the current balance itself.
+                fractions = [b for b in last if re.fullmatch(
+                    r'[0-9]{1,4}[/／]240[+＋]?', re.sub(r'\s+', '', b.name))]
+                if len(fractions) == 1:
+                    from ok import Box
+                    badge = fractions[0]
+                    field = Box(round(badge.x - self.width * .16), 0,
+                                round(self.width * .14), round(self.height * .10))
+                    readings = self.ocr(box=field, threshold=.5,
+                        frame_processor=lambda im: cv2.copyMakeBorder(
+                            cv2.resize(im, None, fx=3, fy=3), 20, 20, 20, 20,
+                            cv2.BORDER_REPLICATE)) or []
+                    values = [re.sub(r'\s+', '', b.name) for b in readings]
+                    values = [v for v in values if re.fullmatch(r'[0-9]{1,4}', v)]
+                    if len(values) == 1:
+                        result = parse_waveplates([badge, Box(
+                            round(badge.x - self.width * .10), 0, 20, 20,
+                            name=values[0])], self.width)
+            return result if result[0] >= 0 else None
+        result = self.wait_until(read_pair, time_out=4, raise_if_not_found=False)
+        if not result:
+            self.log_info(f'waveplate OCR rejected: {[(b.name,b.x,b.width) for b in last]} screen={self.width}')
             self.screenshot('stamina_error')
             return -1, -1, -1
-        current = 0
-        back_up = 0
-        for box in boxes:
-            if match := stamina_re.search(box.name):
-                current = int(match.group(1))
-            elif match := number_re.search(box.name):
-                back_up = int(match.group(1))
+        current, back_up, total = result
         self.info_set('current_stamina', current)
         self.info_set('back_up_stamina', back_up)
-        return current, back_up, current + back_up
+        return current, back_up, total
 
     def use_stamina(self, once=60, must_use=0):
         self.sleep(1)
@@ -1161,6 +1194,9 @@ class BaseWWTask(BaseTask):
                 self.sleep(4)
 
             if not self.wait_guidebook_page(time_out=3):
+                import cv2
+                cv2.imwrite('logs/guidebook-verification-failed.png', self.frame)
+                self.log_info(f'guidebook title OCR: {self.ocr(box=self.box_of_screen(*GUIDEBOOK_TITLE_BOX))}')
                 self.log_error('guidebook verification failed; skip material page coordinate')
                 raise Exception('guidebook verification failed')
 
@@ -1264,11 +1300,17 @@ class BaseWWTask(BaseTask):
 
     def click_team_challenge(self):
         """Start a domain through either the old or current two-page flow."""
+        entry_notice = getattr(self, 'handle_material_entry_notice', None)
+        self._entry_warning_accepted = False
+        if entry_notice:
+            entry_notice(timeout=.5)
         if self.wait_click_feature(
                 'team_start_challenge',
                 raise_if_not_found=False,
                 time_out=2,
                 after_sleep=1):
+            if entry_notice:
+                entry_notice(timeout=1)
             return True
 
         challenge_boxes = self.wait_ocr(
@@ -1285,6 +1327,8 @@ class BaseWWTask(BaseTask):
                 f'click solo challenge by OCR: {challenge.name}'
             )
             self.click_box(challenge, after_sleep=1)
+            if entry_notice:
+                entry_notice(timeout=2)
         else:
             self.screenshot('solo_challenge_not_found')
             raise RuntimeError(
@@ -1297,6 +1341,8 @@ class BaseWWTask(BaseTask):
                 time_out=10,
                 after_sleep=1):
             self.log_info('click team-page start challenge by template')
+            if entry_notice:
+                entry_notice(timeout=1)
             return True
 
         start_boxes = self.wait_ocr(
@@ -1314,6 +1360,8 @@ class BaseWWTask(BaseTask):
                 f'{start_button.name}'
             )
             self.click_box(start_button, after_sleep=1)
+            if entry_notice:
+                entry_notice(timeout=1)
             return True
 
         self.screenshot('team_start_challenge_not_found')
@@ -1359,6 +1407,10 @@ class BaseWWTask(BaseTask):
         )
         if team_button:
             self.click(team_button, after_sleep=1)
+            entry_notice = getattr(self, 'handle_material_entry_notice', None)
+            if entry_notice:
+                self._entry_warning_accepted = False
+                entry_notice(timeout=2)
             self.wait_in_team_and_world(time_out=teleport_timeout)
             return True
 
@@ -1389,18 +1441,32 @@ class BaseWWTask(BaseTask):
     def current_material_target_name(self):
         """Read the display name of the selected cultivation target."""
         target_boxes = self.ocr(
-            *MATERIAL_TARGET_BOX,
+            box=self.box_of_screen(*MATERIAL_TARGET_BOX),
             threshold=0.2,
         ) or []
         ignored = {
             self._normalize_material_text(text)
-            for text in ('培养目标', '培養目標', 'Development Target', 'UP')
+            for text in ('培养目标', '培養目標', 'Development Target', 'UP', '当期')
         }
+        name_left = next((box.x for box in target_boxes
+                          if self._normalize_material_text(box.name) in
+                          ('培养目标', '培養目標', 'developmenttarget')), None)
         target_parts = []
         for box in sorted(target_boxes, key=lambda item: (item.y, item.x)):
             normalized = self._normalize_material_text(box.name)
+            if name_left is not None and box.x < name_left - 3:
+                continue  # Exclude the small banner on the avatar, even if OCR reads only 期.
             if normalized and normalized not in ignored:
                 target_parts.append(box.name.strip())
+        if not target_parts:
+            # A single small glyph such as 心 can be missed by text detection.
+            # Read only the name line at higher resolution, excluding the avatar.
+            name_boxes = self.ocr(
+                box=self.box_of_screen(.142, .173, .302, .208),
+                target_height=self.height * 3, threshold=.8,
+            ) or []
+            target_parts = [box.name.strip() for box in name_boxes
+                            if self._normalize_material_text(box.name) not in ignored]
         return ' '.join(dict.fromkeys(target_parts))
 
     def current_material_target_key(self, category_name):
@@ -1514,7 +1580,7 @@ class BaseWWTask(BaseTask):
     def _visible_material_locations(self, scroll_anchor):
         """Read the visible right-hand location rows on Material Acquisition."""
         action_boxes = self.ocr(
-            *MATERIAL_LOCATION_ACTION_BOX,
+            box=self.box_of_screen(*MATERIAL_LOCATION_ACTION_BOX),
             match=MATERIAL_LOCATION_ACTION_TEXT,
             threshold=0.2,
         ) or []
@@ -1526,10 +1592,12 @@ class BaseWWTask(BaseTask):
         for row_index, action_box in enumerate(action_boxes):
             row_y = (action_box.y + action_box.height / 2) / screen_height
             name_boxes = self.ocr(
-                MATERIAL_LOCATION_NAME_X[0],
-                max(0.185, row_y - 0.075),
-                MATERIAL_LOCATION_NAME_X[1],
-                max(0.20, row_y - 0.012),
+                box=self.box_of_screen(
+                    MATERIAL_LOCATION_NAME_X[0],
+                    max(0.185, row_y - 0.075),
+                    MATERIAL_LOCATION_NAME_X[1],
+                    max(0.20, row_y - 0.012),
+                ),
                 threshold=0.2,
             ) or []
             location_name = ''.join(
@@ -1555,6 +1623,7 @@ class BaseWWTask(BaseTask):
                 'scroll_anchor': scroll_anchor,
                 'row_y': row_y,
                 'row_index': row_index,
+                'action_box': action_box,
             }
             location.update(self._material_row_visuals(
                 row_y,
@@ -1583,7 +1652,7 @@ class BaseWWTask(BaseTask):
         anonymous_locations = []
         selected_visible_location = None
         for scroll_anchor in MATERIAL_LOCATION_SCROLL_ANCHORS:
-            self.click(
+            self.click_relative(
                 MATERIAL_LOCATION_SCROLL_X,
                 scroll_anchor,
                 after_sleep=0.7,
@@ -1669,11 +1738,13 @@ class BaseWWTask(BaseTask):
             f"select material location {selected['name']} "
             f"({selected['action']})"
         )
-        self.click(
-            MATERIAL_LOCATION_ACTION_X,
-            selected['row_y'],
-            after_sleep=1,
-        )
+        # Re-read the row immediately before input; an old row coordinate can
+        # select a different material after scrolling or a UI layout change.
+        visible = self._visible_material_locations(selected.get('scroll_anchor', 0))
+        verified = self._exact_material_location(selected, visible)
+        if verified is None or not verified.get('action_box'):
+            raise RuntimeError('material row changed before click; stop')
+        self.click_box(verified['action_box'], after_sleep=1)
         if selected.get('is_direct'):
             # "Direct Challenge" opens the domain-detail/team flow directly.
             # Its close-button template is not stable across capture backends,
@@ -1695,7 +1766,7 @@ class BaseWWTask(BaseTask):
 
     def enter_material_location(self, location):
         """Restore and click one indexed material location."""
-        self.click(
+        self.click_relative(
             MATERIAL_LOCATION_SCROLL_X,
             location['scroll_anchor'],
             after_sleep=0.7,

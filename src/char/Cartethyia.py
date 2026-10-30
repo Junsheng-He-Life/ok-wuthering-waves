@@ -4,6 +4,8 @@ from src.char.BaseChar import BaseChar, SwitchPriority, forte_white_color
 
 
 class Cartethyia(BaseChar):
+    ECHO_RESONANCE_RETRY_SECONDS = 2.5
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.is_cartethyia = True
@@ -108,11 +110,23 @@ class Cartethyia(BaseChar):
     def click_resonance_with_lib_big(self):
         if self.has_cd('resonance'):
             return False
+        policy = getattr(self.task, 'allow_opportunistic_skills', None)
+        bounded_echo = callable(policy) and policy() is True
+        retry_started = time.monotonic() if bounded_echo else None
+        retry_expired = False
         clicked = False
         self.logger.debug(f'click_resonance start')
         last_click = 0
         resonance_click_time = 0
         while True:
+            if (bounded_echo and
+                    time.monotonic() - retry_started >= self.ECHO_RESONANCE_RETRY_SECONDS):
+                # Start the limit before the first E press: a ready predicate
+                # with an unreadable zero fill never starts the legacy timer.
+                # Returning False lets do_perform continue its normal attacks.
+                retry_expired = True
+                self.logger.info('Cartethyia E retry expired; resume normal attacks and rotation')
+                break
             if resonance_click_time != 0 and time.time() - resonance_click_time > 8:
                 self.task.in_liberation = False
                 self.logger.error(f'click_resonance too long, breaking {time.time() - resonance_click_time}')
@@ -142,7 +156,7 @@ class Cartethyia(BaseChar):
         if clicked:
             self.record_resonance_use()
             self.res_time = time.time()
-        return clicked
+        return clicked and not retry_expired
 
     def is_mid_air_attack_available(self):
         if self.is_cartethyia:

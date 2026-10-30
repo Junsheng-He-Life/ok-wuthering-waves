@@ -3,8 +3,8 @@
 日期：2026-07-25
 适用项目：
 
-- `/Users/junshenghe/Documents/Games/ok-wuthering-waves`
-- `/Users/junshenghe/Documents/Games/ok-script`
+- `/Users/yourname/Documents/Games/ok-wuthering-waves`
+- `/Users/yourname/Documents/Games/ok-script`
 
 本文记录本轮实机调试中已经出现过的问题、根因、修复方向和必须保留的安全边界。
 

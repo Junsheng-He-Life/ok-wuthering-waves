@@ -16,6 +16,7 @@ permissions:
 
 jobs:
   check-issue-template:
+    if: ${{ github.repository == 'ok-oldking/ok-wuthering-waves' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/github-script@v6
@@ -60,7 +61,7 @@ jobs:
 
   close-inactive:
     runs-on: ubuntu-latest
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: ${{ github.repository == 'ok-oldking/ok-wuthering-waves' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
     steps:
       - uses: actions/stale@v8
         with:
