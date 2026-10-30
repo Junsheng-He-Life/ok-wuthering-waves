@@ -210,6 +210,18 @@ class CharacterMaterialTask(DomainTask):
         frame = self.executor.nullable_frame()
         if frame is None:
             return False
+        if getattr(self, 'record_hud', False):
+            # Headless runs have no GUI screenshot signal receiver. Write on
+            # this recorder thread instead of emitting a signal nobody saves.
+            import cv2
+            from pathlib import Path
+            folder = Path('logs') / self.COMBAT_DEBUG_FRAME_FOLDER
+            folder.mkdir(parents=True, exist_ok=True)
+            if not cv2.imwrite(str(folder / f'{time.time_ns()}.jpg'), frame.copy(),
+                               [cv2.IMWRITE_JPEG_QUALITY, 85]):
+                raise RuntimeError('combat debug frame write failed')
+            self._combat_debug_frame_count += 1
+            return True
         self.screenshot(
             f'{self.COMBAT_DEBUG_FRAME_FOLDER}/frame',
             frame=frame.copy(),
@@ -261,8 +273,15 @@ class CharacterMaterialTask(DomainTask):
         return False
 
     def wait_for_full_con_before_switch(self):
-        """Keep each farming character active until its Concerto ring is full."""
-        return True
+        """Allow a bounded Concerto buildup for any freshly identified team."""
+        char = self.get_current_char(raise_exception=False)
+        if char is None:
+            return False
+        # Low recharge or an unreadable ring must not hold an unfamiliar team
+        # on one character for the entire encounter.
+        limit = 18 if char.is_healer else 12
+        started = max(char.last_switch_in_time, getattr(self, 'combat_start', 0))
+        return started > 0 and time.time() - started < limit
 
     def use_sparse_con_ring_detection(self):
         """Support the current thin segmented Concerto ring used by this team."""
@@ -497,6 +516,8 @@ class CharacterMaterialTask(DomainTask):
         current_target = self.current_material_target_name()
         desired = self._normalize_material_text(desired_target)
         current = self._normalize_material_text(current_target)
+        if len(desired) == 1:
+            return desired == current
         return bool(desired and current and (desired in current or current in desired))
 
     def _visible_target_choice(self, desired_target):
@@ -546,47 +567,13 @@ class CharacterMaterialTask(DomainTask):
             current = self.current_material_target_name() or 'current'
             self.log_info(f'use in-game cultivation target: {current}')
             return current
-        if self.material_target_matches(desired_target):
+        if self.wait_until(lambda: self.material_target_matches(desired_target),
+                           time_out=2, raise_if_not_found=False):
             self.log_info(f'cultivation target verified: {desired_target}')
             return desired_target
 
-        # Open the cultivation-target selector from a verified material page.
-        self.click_relative(0.22, 0.15, after_sleep=1)
-        selected = None
-        for attempt in range(6):
-            selected = self._visible_target_choice(desired_target)
-            if selected:
-                break
-            if attempt < 5:
-                self.scroll_relative(0.76, 0.72, -4)
-                self.sleep(0.5)
-
-        if not selected:
-            self.back(after_sleep=1)
-            self.wait_ocr(
-                *MATERIALS_TITLE_BOX,
-                match=MATERIALS_TITLE_TEXT,
-                time_out=2,
-                raise_if_not_found=False,
-            )
-            raise RuntimeError(
-                f'cultivation target "{desired_target}" was not found; '
-                'no material location was selected'
-            )
-
-        self.click_box(selected, after_sleep=1)
-        material_page = self.wait_ocr(
-            *MATERIALS_TITLE_BOX,
-            match=MATERIALS_TITLE_TEXT,
-            time_out=3,
-            settle_time=0.5,
-            raise_if_not_found=False,
-        )
-        if not material_page or not self.material_target_matches(desired_target):
-            raise RuntimeError(
-                f'could not verify cultivation target "{desired_target}" '
-                'after selection'
-            )
+        from src.task.CultivationTargetUI import select_owned_target
+        select_owned_target(self, desired_target)
         self._material_page_dictionary.clear()
         self.log_info(f'cultivation target selected: {desired_target}')
         return desired_target

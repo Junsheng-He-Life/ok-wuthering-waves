@@ -9,6 +9,7 @@ permissions:
 jobs:
 
   mirrorchyan:
+    if: ${{ github.repository == 'ok-oldking/ok-wuthering-waves' }}
     runs-on: macos-latest
     steps:
       - uses: MirrorChyan/uploading-action@v1

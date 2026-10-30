@@ -38,9 +38,11 @@ from src.char.Rebecca import Rebecca
 from src.char.Roccia import Roccia
 from src.char.Sanhua import Sanhua
 from src.char.ShoreKeeper import ShoreKeeper
+from src.char.Suisui import Suisui
 from src.char.Taoqi import Taoqi
 from src.char.Verina import Verina
 from src.char.Xiangliyao import Xiangliyao
+from src.char.Xin import Xin
 from src.char.Xigelika import Xigelika
 from src.char.Yinlin import Yinlin
 from src.char.YangYangSp import YangYangSp
@@ -51,6 +53,8 @@ from src.char.Zhezhi import Zhezhi
 from src.char.CustomCharLoader import load_custom_char_class
 
 _char_dict_raw = {
+    Labels.char_suisui: {'cls': Suisui, 'char_type': CharType.HEALER,
+                         'ring_index': Elements.ICE},
     Labels.yangyang_sp: {'cls': YangYangSp, 'char_type': CharType.MAIN_DPS,
                          'ring_index': Elements.HAVOC},
     Labels.char_yinlin: {'cls': Yinlin, 'char_type': CharType.SUB_DPS,
@@ -90,6 +94,8 @@ _char_dict_raw = {
                          'ring_index': Elements.ICE},
     Labels.char_xiangliyao: {'cls': Xiangliyao, 'char_type': CharType.MAIN_DPS,
                              'ring_index': Elements.ELECTRIC},
+    Labels.char_xin: {'cls': Xin, 'char_type': CharType.MAIN_DPS,
+                      'ring_index': Elements.ELECTRIC},
     Labels.char_camellya: {'cls': Camellya, 'char_type': CharType.MAIN_DPS,
                            'ring_index': Elements.HAVOC},
     Labels.char_youhu: {'cls': Youhu, 'char_type': CharType.HEALER,
@@ -113,7 +119,7 @@ _char_dict_raw = {
     Labels.char_chouyuan: {'cls': Qiuyuan, 'char_type': CharType.SUB_DPS, 'ring_index': Elements.WIND},
     (Labels.char_chisa, Labels.char_chisa2): {'cls': Chisa, 'char_type': CharType.HEALER, 'buff_time': 12,
                                               'ring_index': Elements.HAVOC},
-    Labels.char_denia: {'cls': Denia, 'char_type': CharType.SUB_DPS, 'buff_time': 14, 'ring_index': Elements.FIRE},
+    (Labels.char_denia, 'char_denia_macos_1280'): {'cls': Denia, 'char_type': CharType.SUB_DPS, 'buff_time': 14, 'ring_index': Elements.FIRE},
     Labels.char_douling: {'cls': Douling, 'char_type': CharType.HEALER, 'ring_index': Elements.ELECTRIC},
     (Labels.char_linnai, Labels.char_linnai2): {'cls': Linnai, 'char_type': CharType.SUB_DPS,
                                                 'ring_index': Elements.SPECTRO},
@@ -235,12 +241,14 @@ def get_char_by_pos(task, box, index, old_char):
     info = None
     name = "unknown"
     char = None
-    if old_char and old_char.confidence > 0.92 and old_char.char_name in char_names:
+    if (old_char and old_char.confidence > 0.92 and old_char.char_name in char_names
+            and task.trust_cached_character_hints()):
         if hinted_char := get_char_by_hint(
                 task, box, index, old_char.char_name, old_char=old_char):
             return hinted_char
     if not char:
-        char = task.find_best_match_in_box(box, char_names, threshold=0.6)
+        char = task.find_best_match_in_box(
+            box, char_names, threshold=getattr(task, 'character_match_threshold', 0.6))
         if char:
             info = char_dict.get(char.name)
             name = char.name
@@ -251,7 +259,7 @@ def get_char_by_pos(task, box, index, old_char):
                                                 char_type=_get_char_type(task, info),
                                                 buff_time=_get_buff_time(task, info)), info)
     task.log_info(f'could not find char {index} {info} {highest_confidence}')
-    if old_char:
+    if old_char and task.trust_cached_character_hints():
         return old_char
     if task.debug:
         task.screenshot(f'could not find char {index}')

@@ -4,13 +4,14 @@ from qfluentwidgets import FluentIcon
 
 from ok import TriggerTask, Logger
 from src.char.CharFactory import char_names
+from src.combat.XuanlingTeam import XuanlingTeam
 from src.scene.WWScene import WWScene
 from src.task.BaseCombatTask import BaseCombatTask, NotInCombatException, CharDeadException
 
 logger = Logger.get_logger(__name__)
 
 
-class AutoCombatTask(BaseCombatTask, TriggerTask):
+class AutoCombatTask(XuanlingTeam, BaseCombatTask, TriggerTask):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -77,6 +78,9 @@ class AutoCombatTask(BaseCombatTask, TriggerTask):
             self.use_liberation = True
         combat_start = time.time()
         while self.in_combat():
+            if any(c is None or c.char_name == 'unknown' for c in self.chars):
+                self.log_error('Unrecognized team member; stop auto combat instead of using another character rotation')
+                break
             ret = True
             try:
                 self.get_current_char().perform()

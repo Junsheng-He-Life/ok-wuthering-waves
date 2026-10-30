@@ -21,6 +21,38 @@ class Verina(BaseChar):
     def do_perform(self):
         self.perform_combat()
         self.switch_next_char()
+
+    def emergency_heal_actions(self):
+        """Request a short healing action; the controller verifies injured HP.
+
+        The regular rotation can exit at full concerto before spending forte.
+        Rescue instead tries a ready, supervised R, then the existing E/heavy
+        route only when the fresh HUD explicitly offers the heavy action.
+        """
+        self.task.mouse_up()
+        try:
+            self.task.next_frame()
+            self.check_combat()
+            policy = getattr(self.task, 'use_bounded_liberation_retry', None)
+            bounded = (getattr(self.task, '_verified_battle', False)
+                       and (getattr(self.task, '_plan_boss', False)
+                            or callable(policy) and policy()))
+            if (bounded and self.liberation_available()
+                    and self.click_liberation(wait_if_cd_ready=0)):
+                return True
+            self.task.next_frame()
+            self.check_combat()
+            if self.resonance_available():
+                self.click_resonance(send_click=False, time_out=.6)
+                self.task.next_frame()
+                self.check_combat()
+            if self.is_mouse_forte_full():
+                self.heavy_attack(self.HEAVY_ATTACK_TIME)
+                self.last_heavy = time.time()
+                return True
+            return False
+        finally:
+            self.task.mouse_up()
         
     def perform_combat(self):
         """3A -> 大招 -> E -> 声骸 -> (重击) -> 跳跃 -> 2A; 协奏满/超时则提前结束去切人。"""

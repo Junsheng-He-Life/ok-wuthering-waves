@@ -4,6 +4,7 @@ from src.char.BaseChar import BaseChar, SwitchPriority
 
 
 class Jinhsi(BaseChar):
+    ECHO_INTRO_RETRY_SECONDS = 2.5
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -41,34 +42,50 @@ class Jinhsi(BaseChar):
         super().switch_next_char(free_intro=self.has_free_intro, target_low_con=True)
         self.has_free_intro = False
 
+    def _echo_rotation_enabled(self):
+        policy = getattr(self.task, 'allow_opportunistic_skills', None)
+        return callable(policy) and policy() is True
+
     def handle_incarnation(self):
         self.incarnation = False
         self.logger.info(f'handle_incarnation click_resonance start')
         start = time.time()
         animation_start = 0
         last_op = 'resonance'
-        self.task.in_liberation = True
-        while True:
-            if time.time() - start > 6:
-                self.logger.info(f'handle incarnation too long')
-                break
-            if self.task.in_team()[0]:
-                if last_op == 'resonance':
-                    self.task.click(interval=0.1)
-                    last_op = 'click'
-                else:
-                    self.send_resonance_key()
-                    last_op = 'resonance'
-                if animation_start != 0:
-                    self.logger.info(f'Jinhsi handle_incarnation done')
+        responsive = self._echo_rotation_enabled()
+        self.task.in_liberation = not responsive
+        try:
+            while True:
+                if time.time() - start > 6:
+                    self.logger.info(f'handle incarnation too long')
                     break
-            else:
-                if animation_start == 0:
-                    self.logger.info(f'Jinhsi handle_incarnation start animation')
-                    animation_start = time.time()
-                self.task.in_liberation = True
-            self.check_combat()
-            self.task.next_frame()
+                team_visible = self.task.in_team()[0]
+                if responsive:
+                    # E attempts with a visible HUD are still vulnerable to
+                    # damage. Only an actual cinematic suspends the HP guard.
+                    self.task.in_liberation = not team_visible
+                if team_visible:
+                    if responsive:
+                        self.check_combat()
+                    if last_op == 'resonance':
+                        self.task.click(interval=0.1)
+                        last_op = 'click'
+                    else:
+                        self.send_resonance_key()
+                        last_op = 'resonance'
+                    if animation_start != 0:
+                        self.logger.info(f'Jinhsi handle_incarnation done')
+                        break
+                else:
+                    if animation_start == 0:
+                        self.logger.info(f'Jinhsi handle_incarnation start animation')
+                        animation_start = time.time()
+                    self.task.in_liberation = True
+                self.check_combat()
+                self.task.next_frame()
+        finally:
+            if responsive:
+                self.task.in_liberation = False
         self.task.in_liberation = False
 
         if not self.click_echo():
@@ -82,8 +99,17 @@ class Jinhsi(BaseChar):
     def handle_intro(self):
         self.logger.info(f'handle_intro start')
         start = time.time()
+        responsive = self._echo_rotation_enabled()
         while True:
             elapsed = time.time() - start
+            if responsive and elapsed > self.ECHO_INTRO_RETRY_SECONDS:
+                # A missing cooldown is not evidence that E entered its next
+                # stage. Yield to ready R/attacks without inventing that state.
+                self.logger.info('Jinhsi E stage unconfirmed; resume R and normal attacks')
+                self.incarnation_cd = False
+                self.click_liberation(send_click=True, wait_if_cd_ready=0)
+                self.continues_normal_attack(.3)
+                return
             if self.has_cd('resonance'):
                 if 0.3 < elapsed < 1.5:
                     self.incarnation_cd = True

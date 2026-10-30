@@ -4,8 +4,8 @@
 状态：macOS 前台捕获与输入链路已跑通，自动拾取已由用户实机确认成功
 涉及项目：
 
-- `/Users/junshenghe/Documents/Games/ok-script`
-- `/Users/junshenghe/Documents/Games/ok-wuthering-waves`
+- `/Users/yourname/Documents/Games/ok-script`
+- `/Users/yourname/Documents/Games/ok-wuthering-waves`
 
 > 本文记录本轮对话中已经完成和验证的工作。总体设计仍参见
 > [`docs/macos-port-plan.md`](./macos-port-plan.md)；该方案中“尚未实机验证”的旧状态，
@@ -40,7 +40,7 @@ macOS 输入后端目前是“前台模式”：任务执行时《鸣潮》必�
 先启动 Mac 版《鸣潮》并进入游戏，再在终端运行：
 
 ```bash
-cd "/Users/junshenghe/Documents/Games/ok-wuthering-waves"
+cd "/Users/yourname/Documents/Games/ok-wuthering-waves"
 PYTHONPATH="../ok-script:$PWD" ../ok-script/.venv313/bin/python main.py
 ```
 
@@ -49,13 +49,13 @@ PYTHONPATH="../ok-script:$PWD" ../ok-script/.venv313/bin/python main.py
 开发模式下，本轮实际查看的日志文件是：
 
 ```text
-/Users/junshenghe/Documents/Games/ok-wuthering-waves/logs/ok-script.log
+/Users/yourname/Documents/Games/ok-wuthering-waves/logs/ok-script.log
 ```
 
 查看最新日志：
 
 ```bash
-tail -n 100 "/Users/junshenghe/Documents/Games/ok-wuthering-waves/logs/ok-script.log"
+tail -n 100 "/Users/yourname/Documents/Games/ok-wuthering-waves/logs/ok-script.log"
 ```
 
 ## 3. macOS 后端实现
@@ -75,7 +75,7 @@ tail -n 100 "/Users/junshenghe/Documents/Games/ok-wuthering-waves/logs/ok-script
 默认缓存到：
 
 ```text
-/Users/junshenghe/Documents/Games/ok-script/cache/macos/ok-macos-helper
+/Users/yourname/Documents/Games/ok-script/cache/macos/ok-macos-helper
 ```
 
 Swift 源文件更新时间晚于缓存程序时，会自动重新编译。
@@ -375,7 +375,7 @@ macOS 需要向启动 OK-WW 的终端或最终应用授予：
 检查权限和窗口：
 
 ```bash
-cd "/Users/junshenghe/Documents/Games/ok-wuthering-waves"
+cd "/Users/yourname/Documents/Games/ok-wuthering-waves"
 PYTHONPATH="../ok-script:$PWD" ../ok-script/.venv313/bin/python \
   scripts/macos_probe.py
 ```

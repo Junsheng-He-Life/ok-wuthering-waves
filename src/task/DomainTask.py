@@ -109,12 +109,13 @@ class DomainTask(WWOneTimeTask, BaseCombatTask):
         self._last_manual_exit_probe = now
         # This method is called before every combat input. OCR takes around two
         # seconds on macOS and used to serialize every normal attack behind that
-        # delay. The confirmation button template is the real-time guard; keep
-        # the localized OCR helper for non-hot-path diagnostics only.
+        # delay. OCR only a positive button candidate: combat effects can
+        # resemble this gray template and must not latch a manual stop alone.
         detected = bool(
             self.find_one('gray_confirm_exit_button', threshold=0.7)
         )
-        if detected:
+        if detected and self.ocr(*MANUAL_EXIT_CONFIRM_BOX,
+                                 match=MANUAL_EXIT_CONFIRM_TEXT, threshold=.6):
             set_manual_domain_exit_override(True)
             self._manual_exit_requested = True
             self.log_info(

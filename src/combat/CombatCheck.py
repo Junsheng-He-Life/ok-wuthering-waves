@@ -1,4 +1,5 @@
 import re
+import sys
 import time
 
 from ok import find_boxes_by_name, Logger, calculate_color_percentage
@@ -223,6 +224,9 @@ class CombatCheck(BaseWWTask):
         if self._in_combat:
             if self.scene.in_combat() is not None:
                 return self.scene.in_combat()
+            # Targetless combat still needs the contextual F prompt check;
+            # otherwise its fast path bypasses this input opportunity entirely.
+            self.check_f_break()
             if self.targetless_combat_notified:
                 if self.targetless_end_condition_reached():
                     return self.reset_to_false(
@@ -234,7 +238,6 @@ class CombatCheck(BaseWWTask):
                 return self.reset_to_false(
                     reason='targetless enemy health bar disappeared'
                 )
-            self.check_f_break()
             if current_char := self.get_current_char():
                 if current_char.skip_combat_check():
                     return self.scene.set_in_combat()
@@ -372,6 +375,15 @@ class CombatCheck(BaseWWTask):
     def has_target(self, double_check=False):
         threshold = 0.6
         has_name, no_name = self.get_target_names()
+        if sys.platform == 'darwin' and not self.is_browser():
+            from src.task.CultivationTargetUI import viewport
+            # Native HUD spacing places this icon outside the narrow COCO box
+            # (1447 rather than 1434 px on the observed 1920 px game frame).
+            # Compare both original states in the actual right-hand HUD.
+            best = self.find_best_match_in_box(viewport(self, .70, .85, .84, .96),
+                                               [has_name, no_name], threshold=threshold)
+            if best:
+                return best.name == has_name
         scale = 1.2 if self.is_browser() else 1.1
         best = self.find_best_match_in_box(self.get_box_by_name(has_name).scale(scale), [has_name, no_name],
                                            threshold=threshold)

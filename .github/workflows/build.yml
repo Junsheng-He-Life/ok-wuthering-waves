@@ -24,6 +24,7 @@ env:
 
 jobs:
   validate:
+    if: ${{ github.repository == 'ok-oldking/ok-wuthering-waves' }}
     name: 1 · Validate
     runs-on: windows-latest
 
@@ -102,6 +103,7 @@ jobs:
           }
 
   synchronize:
+    if: ${{ github.repository == 'ok-oldking/ok-wuthering-waves' }}
     name: 2 · Synchronize repositories
     needs: validate
     runs-on: windows-latest
@@ -174,7 +176,7 @@ jobs:
   package:
     name: 3 · Build and sign
     needs: synchronize
-    if: needs.synchronize.outputs.is_release == 'true'
+    if: ${{ github.repository == 'ok-oldking/ok-wuthering-waves' && (needs.synchronize.outputs.is_release == 'true') }}
     runs-on: windows-latest
 
     steps:
@@ -392,7 +394,7 @@ jobs:
   publish:
     name: 4 · Publish
     needs: [ synchronize, package ]
-    if: needs.synchronize.outputs.is_release == 'true'
+    if: ${{ github.repository == 'ok-oldking/ok-wuthering-waves' && (needs.synchronize.outputs.is_release == 'true') }}
     runs-on: ubuntu-latest
 
     steps:

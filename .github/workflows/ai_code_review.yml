@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   review:
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    if: ${{ github.repository == 'ok-oldking/ok-wuthering-waves' && (github.event.pull_request.head.repo.full_name == github.repository) }}
     runs-on: ubuntu-latest
     steps:
       - name: AI Code Review

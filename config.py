@@ -10,6 +10,9 @@ from qfluentwidgets import FluentIcon
 
 from ok import Box, ConfigOption
 from src.task.process_feature import process_feature
+from src.runtime.MacViewport import install_mac_viewport
+
+install_mac_viewport()
 
 version = "dev"
 
@@ -182,7 +185,13 @@ config = {
         'default_threshold': 0.8,
         'feature_processor': process_feature,
         'vcenter_features': ['monthly_card'],
-        'hcenter_features': ['monthly_card']
+        'hcenter_features': [
+            'suisui_forte3', 'suisui_forte2', 'f_break_full',
+            'monthly_card', 'gray_confirm_exit_button', 'mouse_forte', 'e_forte',
+            'box_forte_1', 'box_forte_2', 'box_forte_3', 'hiyuki_lib_forte',
+            'forte_cartethyia_space', 'forte_cartethyia_sword1',
+            'forte_cartethyia_sword2', 'forte_cartethyia_sword3',
+        ]
     },
     'windows': {  # required  when supporting windows game
         'top_hwnd_class': [re.compile('CAgreementDlg'), re.compile('CLoginDlg_P_'),
@@ -215,6 +224,9 @@ config = {
     },
     'supported_resolution': {
         'ratio': '16:9',
+        # Keep 16:9 as the UI reference; 43:18 is 3440x1440.
+        'allowed_ratios': ['16:9', '16:10', '43:18'],
+        'force_ratio': True,
         'resize_to': [(2560, 1440), (1920, 1080), (1600, 900), (1280, 720)],
         'min_size': (1280, 720)
     },
@@ -258,6 +270,7 @@ config = {
     'onetime_tasks': [  # tasks to execute
         ["src.task.DailyTask", "DailyTask"],
         ["src.task.CharacterMaterialTask", "CharacterMaterialTask"],
+        ["src.task.SafeMaterialTask", "SafeMaterialTask"],
         ["src.task.MultiAccountDailyTask", "MultiAccountDailyTask"],
         ["src.task.FarmEchoTask", "FarmEchoTask"],
         ["src.task.AutoRogueTask", "AutoRogueTask"],

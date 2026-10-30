@@ -72,3 +72,7 @@ working_images/
 repo/
 
 assets/result.json
+
+# Local human demonstrations and derived training datasets.
+/data/imitation/
+/runs/imitation/

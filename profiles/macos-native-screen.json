@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "name": "Mac 原生屏幕",
+  "platform": "darwin",
+  "display_reference": {
+    "mode": "fullscreen",
+    "game_window_points": [1512, 949],
+    "game_capture_pixels": [3024, 1898],
+    "coordinate_mapping": "live_viewport"
+  },
+  "game_hotkeys": {
+    "Echo Key": "q",
+    "Liberation Key": "r",
+    "Resonance Key": "e",
+    "Tool Key": "t",
+    "Jump Key": "space",
+    "Dodge Key": "lshift",
+    "Wheel Key": "tab",
+    "Guidebook Key": "f2",
+    "Bag Key": "b"
+  },
+  "start_stop_key": "F9"
+}
