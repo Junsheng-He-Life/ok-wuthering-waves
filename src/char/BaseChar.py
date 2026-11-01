@@ -7,6 +7,7 @@ import numpy as np  # noqa
 
 from ok import Config, Logger  # noqa
 from src import text_white_color  # noqa
+from src.combat.SkillAction import SkillAction
 
 SKILL_TIME_OUT = 15
 
@@ -47,7 +48,7 @@ def get_default_buff_time(char_type=CharType.MAIN_DPS):
     return DEFAULT_BUFF_TIME_BY_TYPE.get(CharType(char_type or CharType.MAIN_DPS), 0)
 
 
-class BaseChar:
+class BaseChar(SkillAction):
     """角色基类，定义了游戏角色的通用属性和行为。
 
     AI editing guide:
@@ -212,7 +213,12 @@ class BaseChar:
         intact so timing/logging behavior remains consistent.
         """
         self.last_perform = time.time()
-        self.do_perform()
+        try:
+            self.do_perform()
+        finally:
+            # Interrupted animations must not disable the next actor's health
+            # guard. The outer workflow owns recovery after an unwind.
+            self.task.in_liberation = False
         self.logger.debug(f'set current char false {self.index}')
 
     def rotation_timeout(self, normal, fast):
@@ -354,10 +360,13 @@ class BaseChar:
                                    target_low_con=target_low_con)
 
     def sleep(self, sec, check_combat=True):
+        previous = getattr(self.task, 'skip_combat_check', False)
         if not check_combat:
             self.task.skip_combat_check = True
-        self.task.sleep(sec)
-        self.task.skip_combat_check = False
+        try:
+            self.task.sleep(sec)
+        finally:
+            self.task.skip_combat_check = previous
 
     def alert_skill_failed(self):
         self.task.log_error(f'Click skill failed, check if the keybinding is correct in ok-ww settings!',
@@ -899,8 +908,12 @@ class BaseChar:
         burst = getattr(self.task, 'native_attack_string', None)
         if duration > 0 and not until_con_full and not click_resonance_if_ready_and_return and callable(burst):
             import math
-            if burst(max(1, math.ceil(duration / (.08 + interval))), interval):
-                self.sleep(after_sleep)
+            if burst(max(1, math.ceil(duration / (.08 + interval))), interval, duration=duration):
+                # The native executor already refreshed and checked this frame.
+                # sleep(0) clears that scene/cache and forces redundant OCR at
+                # the next step despite no additional input having occurred.
+                if after_sleep > 0:
+                    self.sleep(after_sleep)
                 return
         start = time.time()
         while time.time() - start < duration:

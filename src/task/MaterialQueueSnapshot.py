@@ -15,7 +15,7 @@ def _label(job, index, counts, audit):
                and item.get('item_name')]
     if len(set(matches)) == 1:
         return matches[0]
-    return f'{job["kind"]} · 第{job.get("repeat", 0) + 1}行 · 材料{index + 1}'
+    return '材料名称待核对'
 
 
 def build_queue_snapshot(progress, audit=None):

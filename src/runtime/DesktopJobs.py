@@ -20,8 +20,16 @@ class DesktopRequest:
     reserve: int = 0
     claim_rewards: bool = True
     experimental: bool = False
+    target_teams: str = ''
+    combat_teams: str = ''
 
     def validate(self):
+        if self.target_teams or self.combat_teams:
+            from src.task.PresetTeamUI import parse_team_numbers
+            parse_team_numbers(self.target_teams)
+            parse_team_numbers(self.combat_teams)
+            if self.kind != 'materials':
+                raise ValueError('跨队目标仅用于培养材料')
         if self.kind not in TASKS:
             raise ValueError('请选择支持的任务。')
         if self.kind != 'materials' and not self.stage.strip():
@@ -57,6 +65,9 @@ class DesktopRequest:
                 args += ['--echo-no-claim']
         if self.experimental:
             args += ['--desktop-experimental']
+        if self.target_teams:
+            args += ['--target-teams', self.target_teams, '--combat-teams', self.combat_teams, '--continuous', '--record-hud']
+            args[args.index('--timeout') + 1] = '0'
         return args
 
 
@@ -102,6 +113,8 @@ def result_summary(result):
         title = '队伍检查未通过'
     elif status in ('stopped', 'not_started', 'running', 'unknown'):
         title = '需要处理后再继续'
+    elif status == 'materials_remaining':
+        title = '本轮已结束，仍有材料缺口'
     elif status in ('preflight_completed', 'catalog_no_spending', 'menu_observed',
                     'inventory_inspected_no_spending', 'diagnosed', 'world_verified', 'read_only'):
         title = '检查已完成'

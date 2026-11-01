@@ -8,6 +8,8 @@ The companion framework, [Junsheng-He-Life/ok-script](https://github.com/Junshen
 
 ## Download and start
 
+The source branch now includes cross-party material planning, name/icon-based shared inventory, action confirmation and health guards, and a scrollable live log. See the [implementation and validation notes](docs/material-combat-update-2026-11-01.md). The beta.1 download below is unchanged; this source update does not establish stability for every character or boss.
+
 Current version: **0.1.0-beta.1, an installable source beta**. Installation in an independent dependency environment and offline regression checks have passed. Validation on multiple physical Macs is still pending.
 
 **[Download v0.1.0-beta.1](https://github.com/Junsheng-He-Life/ok-wuthering-waves/releases/tag/v0.1.0-beta.1)** and select the asset **`ok-ww-macos-beta-0.1.0-beta.1.zip`**. It contains both matching projects, installation commands and pinned dependencies. GitHub's automatically generated `Source code` archives do not contain the complete companion environment.

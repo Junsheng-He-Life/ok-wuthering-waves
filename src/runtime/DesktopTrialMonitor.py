@@ -70,6 +70,8 @@ class DesktopTrialMonitor:
         previous = time.monotonic()
         last_published = previous - 1
         while not self.done.wait(.2):
+            if self.stop_on_capture_error():
+                return
             requested, self.control_request = self.control_request, None
             if requested:
                 (self.pause if requested == 'pause' else self.resume)()
@@ -87,6 +89,16 @@ class DesktopTrialMonitor:
                 self.app.exit_event.set()
                 self.release(self.app)
                 return
+
+    def stop_on_capture_error(self):
+        capture = getattr(getattr(self.app, 'device_manager', None), 'capture_method', None)
+        error = getattr(capture, 'geometry_error', None)
+        if not error:
+            return False
+        print('DESKTOP_CONTROL', json.dumps({'error': error}, ensure_ascii=False), flush=True)
+        self.app.exit_event.set()
+        self.release(self.app)
+        return True
 
     def close(self):
         self.done.set()

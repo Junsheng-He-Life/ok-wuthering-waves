@@ -8,6 +8,19 @@
 - Fall back to `python` only when no local `.venv` interpreter exists.
 - Prefer invoking the interpreter directly, for example `.\.venv\Scripts\python.exe -m pytest`, instead of relying on shell activation.
 
+## Combat extensibility
+
+- Shared scheduling, action confirmation, bounded retry and recovery must work
+  across characters and parties. Do not add fixes gated on a particular roster.
+- Character modules supply mechanic-specific prerequisites, inputs and visual
+  evidence (for example multi-stage skills, transformations and held attacks).
+  Do not treat a cooldown transition as proof of every character's full combo.
+- Team recommendations may rank eligible switch targets; they must not bypass
+  action completion, character switch restrictions or health/resource guards.
+- Test shared contracts independently of the current party. Report per-character
+  and cross-party live validation separately; one successful party does not
+  establish that all character mechanics have been adapted.
+
 ## Echo pipeline
 
 - Read `docs/声骸轮刷.md` before running the new Boss/Tacet echo tasks.

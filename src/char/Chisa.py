@@ -1,6 +1,8 @@
 import time
 
 from src.char.BaseChar import BaseChar, CharType, get_default_buff_time
+from src.combat.RotationSequence import run_sequence, optional_step, observed_burst
+from src.combat.SkillAction import ActionStatus, SkillResult
 
 
 class Chisa(BaseChar):
@@ -38,36 +40,32 @@ class Chisa(BaseChar):
 
     def do_detonation_support(self):
         self.check_f_on_switch = True
-        visit = (self.last_switch_in_time, self.task.combat_start)
-        if getattr(self, '_detonation_visit', None) != visit:
-            self._detonation_visit = visit
-            self._detonation_chain_done = False
-        if not self._detonation_chain_done:
+        def opening():
             if self.has_intro:
                 self.wait_intro(.5)
             else:
                 self.continues_normal_attack(.5)
             self.click_echo(time_out=0)
-            self.click_resonance(time_out=.8)
-            # Charge the enhanced E from attacks rather than assuming the
-            # reference equipment's recharge or the Intro supplied enough.
+
+        def charge():
             start = time.monotonic()
             while not self.is_forte_full() and time.monotonic() - start < 3:
                 self.continues_normal_attack(.3)
-            self.click_liberation(wait_if_cd_ready=0)
+
+        def finish():
             if self.is_forte_full():
-                self.perform_forte()
-            else:
-                self.click_resonance(time_out=.6)
-            self._detonation_chain_done = True
-        else:
-            self.click_liberation(wait_if_cd_ready=0)
-            if self.is_forte_full():
-                self.perform_forte()
-            elif self.resonance_available():
-                self.click_resonance(time_out=.5)
-            self.continues_normal_attack(.4, until_con_full=True)
-        return self.switch_next_char()
+                confirmed = bool(self.perform_forte())
+                return SkillResult(ActionStatus.CONFIRMED if confirmed else ActionStatus.UNCONFIRMED,
+                                   True, 'forte_consumed' if confirmed else 'forte_unchanged')
+            return self.resonance_action(time_out=.6)
+
+        return run_sequence(self, [
+            ('opening', lambda: optional_step(opening)),
+            ('resonance', self.resonance_action),
+            ('charge', lambda: optional_step(charge)),
+            ('liberation', lambda: observed_burst(self)),
+            ('finish', finish),
+        ])
 
     def do_fast_support(self):
         self.check_f_on_switch = True

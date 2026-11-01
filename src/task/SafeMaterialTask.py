@@ -215,10 +215,14 @@ class SafeMaterialTask(MaterialWorkflow, DetonationTeam, XuanlingTeam, VerifiedD
                 return
             if self.phase == 'refill-inspect':
                 self.return_to_world()
-                self.send_key('m', after_sleep=1)
-                self.get_stamina()
-                self.click_relative(.839, .059, after_sleep=.5)
-                if not self.menu_text(r'补充结晶波片', (.2, .1, .75, .3)):
+                self.open_materials_book()
+                self.ensure_cultivation_target(self.expected_target)
+                self.result['stamina'] = self.get_stamina()
+                import cv2
+                cv2.imwrite('logs/refill-inspect-before.png', self.frame)
+                self.open_waveplate_refill()
+                if not self.refill_text(r'补充结晶波片'):
+                    cv2.imwrite('logs/refill-inspect-error.png', self.frame)
                     raise RuntimeError('refill menu missing')
                 self.focus_material_menu()
                 self.click(self.width_of_screen(1) * .497, self.height_of_screen(1) * .44, after_sleep=1)

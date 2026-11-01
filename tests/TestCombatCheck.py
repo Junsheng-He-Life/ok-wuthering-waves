@@ -1,5 +1,6 @@
 import time
 import unittest
+from pathlib import Path
 from unittest import mock
 from config import config
 from ok.feature.Box import Box
@@ -37,6 +38,8 @@ class TestCombatCheck(TaskTestCase):
         # time.sleep(1)
         self.assertTrue(in_combat)
 
+    @unittest.skipUnless(Path('ok_templates/57d8d801-BitBlt_True_3840x2160_1759986393607.1733_original.png').is_file(),
+                         'Optional historical 4K capture is not distributed')
     def test_4k_combat_check(self):
         self.task.ensure_levitator = return_true
         self.task.do_reset_to_false()
@@ -61,6 +64,8 @@ class TestCombatCheck(TaskTestCase):
         in_combat = self.task.in_combat()
         self.assertTrue(in_combat)
 
+    @unittest.skipUnless(Path('ok_templates/browser_in_combat.png').is_file(),
+                         'Optional historical browser capture is not distributed')
     def test_in_combat_cloud2(self):
         self.task.ensure_levitator = return_true
         self.task.do_reset_to_false()
@@ -69,6 +74,8 @@ class TestCombatCheck(TaskTestCase):
         in_combat = self.task.in_combat()
         self.assertTrue(in_combat)
 
+    @unittest.skipUnless(Path('ok_templates/25.png').is_file(),
+                         'Optional historical target capture is not distributed')
     def test_target_box_short(self):
         self.set_image('ok_templates/25.png')
         self.task.chars = [BaseChar(self.task, 0)]
@@ -273,6 +280,7 @@ class TestTargetlessDomainCombat(unittest.TestCase):
         task.targetless_health_probe_interval = lambda: 1
         task.targetless_combat_grace_period = lambda: 3
         task.targetless_target_retry_interval = lambda: 1
+        task.check_f_break = mock.Mock()
         task.has_target = lambda: self.fail(
             'fast targetless path must not scan the lock-on indicator'
         )
@@ -291,6 +299,28 @@ class TestTargetlessDomainCombat(unittest.TestCase):
 
         with mock.patch('src.combat.CombatCheck.time.time', return_value=100.2):
             self.assertTrue(task.do_check_in_combat(False))
+        task.check_f_break.assert_called_once_with()
+
+    def test_missing_health_bar_expires_after_grace_without_retargeting(self):
+        task = CombatCheck.__new__(CombatCheck)
+        task.allow_combat_without_target = lambda: True
+        task.last_targetless_health_probe = 100
+        task.last_targetless_health_confirmed = 100
+        task.last_targetless_target_attempt = 102
+        task.targetless_combat_notified = True
+        task.targetless_health_probe_interval = lambda: .25
+        task.targetless_combat_grace_period = lambda: 3
+        task.targetless_target_retry_interval = lambda: 2
+        task.check_health_bar = mock.Mock(return_value=False)
+        task.target_enemy = mock.Mock()
+        task.scene = mock.Mock()
+        task.scene.set_in_combat.return_value = True
+        with mock.patch('src.combat.CombatCheck.time.time', return_value=102.5):
+            self.assertTrue(task.keep_targetless_combat())
+        with mock.patch('src.combat.CombatCheck.time.time', return_value=103.01):
+            self.assertFalse(task.keep_targetless_combat())
+        task.target_enemy.assert_not_called()
+        self.assertEqual(task.last_targetless_health_confirmed, 100)
 
     def test_domain_requires_treasure_or_death_to_finish_combat(self):
         class Task:
@@ -420,6 +450,27 @@ class TestTargetlessDomainCombat(unittest.TestCase):
         from src.task.DomainTask import domain_leave_confirmation_visible
 
         self.assertTrue(domain_leave_confirmation_visible(Task()))
+
+    def test_exit_template_false_positive_does_not_latch_stop(self):
+        from types import SimpleNamespace
+        task = SimpleNamespace(_manual_exit_requested=False, _last_manual_exit_probe=0,
+                               MANUAL_EXIT_PROBE_INTERVAL=0, find_one=mock.Mock(return_value=True),
+                               ocr=mock.Mock(return_value=[]), log_info=mock.Mock())
+        self.assertFalse(DomainTask.manual_domain_exit_requested(task))
+        self.assertFalse(task._manual_exit_requested)
+        task.ocr.assert_called_once()
+
+    def test_verified_exit_dialog_still_stops_without_clicking(self):
+        from types import SimpleNamespace
+        task = SimpleNamespace(_manual_exit_requested=False, _last_manual_exit_probe=0,
+                               MANUAL_EXIT_PROBE_INTERVAL=0, find_one=mock.Mock(return_value=True),
+                               ocr=mock.Mock(return_value=[Box(700,350,200,40,name='确认离开')]),
+                               log_info=mock.Mock())
+        try:
+            self.assertTrue(DomainTask.manual_domain_exit_requested(task))
+            self.assertTrue(task._manual_exit_requested)
+        finally:
+            set_manual_domain_exit_override(False)
 
     def test_manual_leave_hot_path_does_not_run_ocr(self):
         class Task:

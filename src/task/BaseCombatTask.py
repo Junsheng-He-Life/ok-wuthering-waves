@@ -178,11 +178,14 @@ class BaseCombatTask(CombatCheck):
         cds['echo'] = 0
         cd_x = self._cd_ocr_relative_x
         policy = getattr(self, 'allow_opportunistic_skills', None)
-        native_echo = sys.platform == 'darwin' and callable(policy) and policy() is True
+        native_combat = sys.platform == 'darwin' and (
+            getattr(self, '_verified_battle', False) is True
+            or callable(policy) and policy() is True)
         # Native cooldown digits are gray-white: the >240 white isolation
         # removes them and falsely clears the cooldown. Keep their original
-        # contrast for verified Echo combat; geometry and parsing stay shared.
-        processor = None if native_echo else isolate_white_text_to_black
+        # contrast for verified material and Echo combat alike. This must not
+        # depend on which rotation policy is enabled; cooldown is perception.
+        processor = None if native_combat else isolate_white_text_to_black
         texts = self.ocr(cd_x(0.82), 0.86, cd_x(0.97), 0.93,
                          frame_processor=processor, match=cd_regex)
         for text in texts:
@@ -550,14 +553,6 @@ class BaseCombatTask(CombatCheck):
         if not candidates:
             return current_char
 
-        preferred = self.preferred_switch_target(
-            current_char,
-            candidates,
-            has_intro,
-        )
-        if preferred in candidates:
-            return preferred
-
         must_targets = []
         normal_targets = []
         no_targets = []
@@ -574,6 +569,10 @@ class BaseCombatTask(CombatCheck):
 
         if has_intro:
             if not must_targets:
+                eligible = [c for c in normal_targets if not self._target_has_switch_cd(c)]
+                preferred = self.preferred_switch_target(current_char, eligible, has_intro)
+                if preferred in eligible:
+                    return preferred
                 healer = expired_echo_intro_healer(self, current_char, normal_targets)
                 if healer is not None:
                     return healer
@@ -589,6 +588,12 @@ class BaseCombatTask(CombatCheck):
         candidates_without_switch_cd = [char for char in candidates if not self._target_has_switch_cd(char)]
         if candidates_without_switch_cd:
             candidates = candidates_without_switch_cd
+
+        # A team reference cannot bypass a character's NO/MUST priority or a
+        # ready alternative's switch cooldown. Apply it only to eligible peers.
+        preferred = self.preferred_switch_target(current_char, candidates, has_intro)
+        if preferred in candidates:
+            return preferred
 
         return self._choose_switch_target_by_buff_time(current_char, candidates)
 

@@ -313,6 +313,30 @@ while True: time.sleep(.02)
         task.unpause.assert_not_called()
         self.assertFalse(snapshot(task, executor)['control_ready'])
 
+    def test_geometry_failure_stops_even_before_executor_enters_task(self):
+        app = SimpleNamespace(exit_event=Mock(), device_manager=SimpleNamespace(
+            capture_method=SimpleNamespace(geometry_error='window changed')))
+        release = Mock()
+        monitor = DesktopTrialMonitor(app, SimpleNamespace(), 0, Mock(), release)
+        with patch('builtins.print'):
+            self.assertTrue(monitor.stop_on_capture_error())
+        app.exit_event.set.assert_called_once()
+        release.assert_called_once_with(app)
+
+    def test_startup_waits_for_foreground_geometry_to_settle(self):
+        from src.runtime.MacStartup import stabilize_window
+        clock = [0.0]
+        window = Mock()
+        window.bring_to_front.return_value = True
+        window.is_foreground.side_effect = lambda: clock[0] >= 1
+        def refresh():
+            window.capture_target_signature = ('settled' if clock[0] >= 2 else 'moving',)
+        window.do_update_window_size.side_effect = refresh
+        result = stabilize_window(window, clock=lambda: clock[0],
+                                  sleep=lambda delay: clock.__setitem__(0, clock[0]+delay))
+        self.assertEqual(('settled',), result)
+        self.assertGreaterEqual(clock[0], 4)
+
     def test_progress_respects_task_pause_even_when_executor_is_not_paused(self):
         task = SimpleNamespace(result={}, info={}, paused=True)
         self.assertTrue(snapshot(task, SimpleNamespace(paused=False))['paused'])

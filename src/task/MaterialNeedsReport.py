@@ -44,7 +44,7 @@ def describe_job(job):
 def write_needs_report(progress, status='paused', budget=None, directory='logs/material-status', activity=None):
     folder = Path(directory)
     folder.mkdir(parents=True, exist_ok=True)
-    jobs = [describe_job(job) for job in progress.get('jobs', [])]
+    jobs = [describe_job(job) for job in progress.get('jobs', []) if not job.get('superseded')]
     data = {'updated_at': datetime.now().astimezone().isoformat(timespec='seconds'),
             'observed_at': progress.get('observed_at', '旧记录，扫描时间未记录'),
             'status': status, 'budget': budget, 'activity': activity, 'jobs': jobs}
@@ -61,7 +61,7 @@ def write_needs_report(progress, status='paused', budget=None, directory='logs/m
         estimate = job['conversion_estimate']
         projected = (' · '.join(map(str, estimate['missing'])) + '（3:1估算，配方待核验）') if estimate else '系列/等级未核验，不混合折算'
         note = job.get('deferred_reason') or ('周本尚未适配' if job.get('kind') == '周本' else job['observation_status'])
-        cells = [job['target'], f"{job['kind']} · 第{job.get('repeat',0)+1}行", counts, missing, projected, note]
+        cells = [job['target'], '、'.join(job.get('material_names') or ['材料名称待核对']), counts, missing, projected, note]
         rows.append('<tr>' + ''.join('<td>'+html.escape(str(c))+'</td>' for c in cells) + '</tr>')
     status_text = {'paused':'已暂停','interrupted':'已暂停','running':'运行中','stopped':'已停止'}.get(status,status)
     page = '''<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta http-equiv="refresh" content="5">

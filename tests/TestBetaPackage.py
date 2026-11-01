@@ -79,7 +79,8 @@ class TestBetaPackage(unittest.TestCase):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text('fixture')
         self.assets(app)
-        for name in ('leviathan-reward-orb-1920.png', 'map-beacon-huanglong-1920.png', 'map-nexus-huanglong-1920.png'):
+        for name in ('leviathan-reward-orb-1920.png', 'map-beacon-huanglong-1920.png', 'map-nexus-huanglong-1920.png',
+                     'douling-heal-burst-1920.png', 'douling-heal-regen-1920.png'):
             Image.new('RGB', (8, 8)).save(app / 'assets/images' / name)
         for relative in ('src/actual_dirty_code.py', 'configs/account.json', 'logs/player.png'):
             path = app / relative
@@ -101,6 +102,9 @@ class TestBetaPackage(unittest.TestCase):
                 manifest = build(app, framework, output, 'test', archive=False)
             self.assertFalse((output / 'ok-wuthering-waves/configs').exists())
             self.assertFalse((output / 'ok-wuthering-waves/logs').exists())
+            self.assertIn('ok-wuthering-waves/scripts/material_queue_window.py', manifest['files'])
+            for number in range(1, 7):
+                self.assertIn(f'ok-wuthering-waves/assets/preset-team-digits/{number:02}.png', manifest['files'])
             relative = 'ok-wuthering-waves/src/actual_dirty_code.py'
             self.assertEqual(hashlib.sha256(b'current uncommitted content').hexdigest(),
                              manifest['files'][relative]['sha256'])

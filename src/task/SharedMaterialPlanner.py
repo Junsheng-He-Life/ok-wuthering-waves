@@ -36,6 +36,9 @@ def _material_names(job):
                          or any(type(v) is not int or v < 0 for v in pair)
                          for pair in counts):
         return []
+    verified = job.get('material_names') or []
+    if job.get('identity_source') == 'verified_icon':
+        return verified if len(verified) == len(counts) and all(verified) else []
     target, kind, repeat = job['target'], job['kind'], job.get('repeat', 0)
     singles = {'突破': {'今汐': '哀歌声核', '卜灵': '群儡的秽冕'},
                '周本': {'心': '演轮残蜕', '今汐': '岁时之角刃', '卜灵': '深洋的咒诅'}}
@@ -75,6 +78,26 @@ def combined_plan(jobs, audit=None):
 
 
 def apply_shared_material_plan(jobs):
+    # A named scan must reserve the bag once across every requested character,
+    # including boss drops and money. No historical row mapping is used here.
+    if any(job.get('identity_source') == 'verified_icon' for job in jobs):
+        from src.task.MaterialIdentity import aggregate_named_materials
+        summary, _ = aggregate_named_materials(jobs)
+        by_name = {r['item_name']: r for r in summary}
+        for job in jobs:
+            if job.get('superseded'):
+                continue
+            if job.get('identity_source') != 'verified_icon':
+                job['satisfied'] = False
+                continue
+            entries = [by_name[n] for n in job['material_names']]
+            job['shared_materials'] = entries
+            job['satisfied'] = all(r['raw_missing'] == 0 for r in entries)
+            if any(r['raw_missing'] is None for r in entries):
+                job['deferred_reason'] = '同名材料库存读数冲突，需重新核对'
+            elif str(job.get('deferred_reason', '')).startswith(SYNTHESIS_DEFERRALS):
+                _clear_synthesis_deferral(job)
+        return jobs
     policy_path = Path('configs/macos-desktop/shared-material-policy.json')
     if policy_path.exists():
         try:

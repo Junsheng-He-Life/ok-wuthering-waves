@@ -104,18 +104,30 @@ class MaterialBossGuard(MaterialBossHealing):
 
     def check_material_boss_health(self):
         from src.task.VerifiedDomainCombat import DomainBattleFailed
+        from src.combat.HealthyHudGuard import fresh_healthy_portrait
+        if fresh_healthy_portrait(self):
+            return
         hp = self.read_boss_hp()
         if hp is None:
             self._boss_unreadable_hp += 1
             observation = getattr(self, '_hp_observation', {}) or {}
             bars = observation.get('portrait_ratios', ())
             age = time.monotonic() - observation.get('monotonic', float('-inf'))
-            if (observation.get('team_verified') and 0 <= age <= 1
-                    and len(bars) == 3 and all(bar is not None and bar >= .7 for bar in bars)):
-                # A fresh, fully readable healthy team can corroborate safety
-                # while damage effects hide numeric HP. This never supplies
-                # numeric healing evidence or permits a low/unknown bar.
-                self.log_info('numeric HP obscured; fresh healthy team portrait bars confirmed')
+            team, slot, *_ = self.in_team()
+            sequence = observation.get('capture_sequence')
+            sample = (slot, sequence)
+            now = time.monotonic()
+            if sample != getattr(self, '_hp_portrait_sample', None):
+                self._hp_portrait_sample = sample
+                self._hp_portrait_sample_at = now
+            fresh = (sequence is not None and now - getattr(self, '_hp_portrait_sample_at', now) <= 1)
+            if (team and observation.get('team_verified') and 0 <= slot < 3
+                    and observation.get('slot_at_decision') == slot and 0 <= age <= 1
+                    and fresh and len(bars) == 3 and bars[slot] is not None and bars[slot] >= .5):
+                # The active actor's bar is independent evidence even when an
+                # off-field ally is injured. Keep it as a ratio: do not invent
+                # numeric HP, claim healing, or reset the unknown-read counter.
+                observation['health_evidence'] = 'active_portrait_only'
                 return
             if self.in_team()[0] and self.check_health_bar():
                 # Damage effects can obscure the active character's HP text
@@ -155,15 +167,19 @@ class MaterialBossGuard(MaterialBossHealing):
         # Sleep hooks run during acquisition too: enforce elapsed time there
         # while preventing recursive target acquisition.
         self.check_boss_acquire_deadline()
-        if (getattr(self, 'in_liberation', False)
-                or getattr(self, '_boss_acquiring', False)):
+        if getattr(self, '_boss_acquiring', False):
+            return
+        # Animation hints are transient and can outlive an interrupted skill.
+        # A visible team HUD permits health checks even during a long action;
+        # hidden cinematic HUDs retain the existing bounded animation grace.
+        if getattr(self, 'in_liberation', False) and not self.in_team()[0]:
             return
         now = time.monotonic()
         if now < self._boss_guard_at:
             return
         self._boss_guard_at = now + self.boss_policy_value('health_interval', 1)
         self.check_material_boss_health()
-        if getattr(self, '_boss_healing', False):
+        if getattr(self, '_boss_healing', False) or getattr(self, 'in_liberation', False):
             return
         if not getattr(self, '_plan_boss', False):
             guard_target = getattr(self, 'guard_echo_target', None)

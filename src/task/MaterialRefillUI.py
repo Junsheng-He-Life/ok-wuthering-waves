@@ -29,6 +29,43 @@ class MaterialRefillUI:
             raise RuntimeError(f'refill action not uniquely verified: {pattern}')
         self.click_box(box, after_sleep=.6)
 
+    def record_refill_inventory_view(self, label):
+        """Persist the existing stream's supply view before any exchange."""
+        import cv2
+        import numpy as np
+        frame = getattr(self, 'frame', None)
+        if not isinstance(frame, np.ndarray):
+            return
+        folder = Path('logs/refill-inventory')
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / f'{time.time_ns()}-{label}.png'
+        frame = frame.copy()
+        cv2.imwrite(str(path), frame)
+        rows = self.ocr(0, 0, 1, 1, frame=frame)
+        record = {'label': label, 'image': str(path),
+                  'text': [{'text': b.name, 'x': b.x, 'y': b.y,
+                            'width': b.width, 'height': b.height} for b in rows]}
+        path.with_suffix('.json').write_text(json.dumps(record, ensure_ascii=False, indent=2))
+        if isinstance(getattr(self, 'result', None), dict):
+            self.result.setdefault('refill_inventory_views', []).append(str(path.with_suffix('.json')))
+
+    def open_waveplate_refill(self):
+        from src.task.WaveplateReading import find_waveplate_add_box
+        self.focus_material_menu()
+        for _ in range(2):
+            if self.refill_text(r'补充结晶波片', timeout=.3):
+                return
+            self.next_frame()
+            frame = self.frame
+            rows = self.ocr(.35, 0, .92, .10, frame=frame, threshold=.5)
+            button = find_waveplate_add_box(frame, rows or [])
+            if button is None:
+                raise RuntimeError('当前波片数量旁的补给加号未确认；未发送点击')
+            self.click_box(button, after_sleep=.5)
+            if self.refill_text(r'补充结晶波片', timeout=3):
+                return
+        raise RuntimeError('补给加号两次已核对点击后窗口仍未打开')
+
     def assert_no_pending_refill(self):
         if Path('logs/echo-claim-pending.json').exists():
             raise RefillOutcomeUncertain('上次声骸领奖结果未核对；禁止开始新一轮')
@@ -77,9 +114,10 @@ class MaterialRefillUI:
             raise MaterialResourceLimit('储备额度不足')
         self.focus_material_menu()
         if not opened:
-            self.click_relative(.839, .059, after_sleep=.5)
+            self.open_waveplate_refill()
         if not self.refill_text(r'补充结晶波片'):
             raise RuntimeError('补给窗口未确认')
+        self.record_refill_inventory_view('sources')
         x = .405 if source == 'reserve' else .497
         self.click(self.width_of_screen(1)*x, self.height_of_screen(1)*.44, after_sleep=.5)
         label = r'提取等量结晶单质' if source == 'reserve' else r'消耗1结晶溶剂补充60结晶波片'
@@ -88,6 +126,7 @@ class MaterialRefillUI:
         if source == 'solvent':
             self.refill_click(r'确认', (.5, .66, .75, .8))
             count = self.verify_solvent_exchange()
+            self.record_refill_inventory_view('solvent-preview')
             if (budget.max_solvents != -1
                     and budget.solvents_used + count > budget.max_solvents):
                 raise MaterialResourceLimit('溶剂兑换次数超过本次剩余额度；禁止确认')

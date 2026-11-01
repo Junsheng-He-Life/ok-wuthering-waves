@@ -11,6 +11,38 @@ class BossHealRequested(Exception):
 
 class MaterialBossHealing(BossHealthReading, BattleEvidence):
     HEALERS = ('char_suisui', 'char_chisa', 'char_verina', 'char_baizhi')
+
+    def quarantine_injured(self, char):
+        # Time off field does not establish healing. Keep the injury across
+        # rotation attempts; fresh numeric recovery or a new battle clears it.
+        char.recovery_until = float('inf')
+        char.recovery_needs_health = True
+
+    def observe_recovery_health(self, char, hp):
+        if (getattr(char, 'recovery_needs_health', False)
+                and hp[1] > 0 and hp[0] >= .7 * hp[1]):
+            char.recovery_needs_health = False
+            char.recovery_until = 0
+
+    def healing_candidates(self):
+        """Select by implemented capability, excluding known unsafe recipients."""
+        now = time.monotonic()
+        team, active, *_ = self.in_team()
+        samples = getattr(self, '_boss_team_health', {})
+        candidates = []
+        for slot, char in enumerate(getattr(self, 'chars', [])):
+            if (not char or char.confidence < .8
+                    or not callable(getattr(char, 'emergency_heal_actions', None))
+                    or now < getattr(char, 'heal_retry_after', 0)
+                    or now < getattr(char, 'recovery_until', 0)):
+                continue
+            sample = samples.get(slot)
+            if sample and 0 <= now - sample[0] <= 15 and sample[1][0] < .4 * sample[1][1]:
+                continue
+            candidates.append((slot, char))
+        candidates.sort(key=lambda pair: (not (team and pair[0] == active), pair[0]))
+        return [char for _, char in candidates]
+
     def healthy_healing_replacement(self, injured_slot):
         now = time.monotonic()
         samples = getattr(self, '_boss_team_health', {})
@@ -32,6 +64,7 @@ class MaterialBossHealing(BossHealthReading, BattleEvidence):
             if not hasattr(self, '_boss_team_health'):
                 self._boss_team_health = {}
             self._boss_team_health[slot] = (time.monotonic(), hp)
+            self.observe_recovery_health(self.chars[slot], hp)
         if getattr(self, '_boss_healing', False):
             if time.monotonic() >= self._boss_heal_deadline:
                 self.fail_battle('紧急治疗超时；返回信标')
@@ -39,15 +72,22 @@ class MaterialBossHealing(BossHealthReading, BattleEvidence):
             # character may still be shown until the new slot becomes active;
             # let the bounded switch finish instead of aborting it midway.
             return True
-        healers = [c for c in getattr(self, 'chars', [])
-                   if c and c.char_name in self.HEALERS and c.confidence >= .8]
-        if hp[0] <= .2 * hp[1]:
-            if team and slot >= 0 and len(healers) == 1:
-                raise BossHealRequested(slot, hp)
-            self.fail_battle('当前角色生命危急且接场角色未确认')
-        if len(healers) != 1 or hp[0] > .65 * hp[1]:
+        if hp[0] > .65 * hp[1]:
             return False
-        self_rescue = team and slot >= 0 and self.chars[slot] is healers[0]
+        healers = self.healing_candidates()
+        if hp[0] <= .2 * hp[1] or (not healers and hp[0] <= .4 * hp[1]):
+            # With no executable healer, the outer 40% retreat guard would
+            # otherwise make the existing 20% healthy-ally rescue unreachable.
+            # Request a bounded, numerically verified replacement before that
+            # guard, rather than lowering the protection threshold.
+            if team and slot >= 0 and (healers or any(
+                    c and c.confidence >= .8 for i, c in enumerate(getattr(self, 'chars', [])) if i != slot)):
+                raise BossHealRequested(slot, hp)
+            self.fail_battle('当前角色生命危急且接场角色未确认' if hp[0] <= .2 * hp[1]
+                             else '当前角色血量低于 40% 且接场角色未确认；返回治疗')
+        if not healers or hp[0] > .65 * hp[1]:
+            return False
+        self_rescue = team and slot >= 0 and any(self.chars[slot] is c for c in healers)
         cooldown = '_boss_self_heal_last' if self_rescue else '_boss_heal_last'
         if hp[0] > .4 * hp[1] and time.monotonic() - getattr(self, cooldown, -100) < 25:
             return False
@@ -119,7 +159,9 @@ class MaterialBossHealing(BossHealthReading, BattleEvidence):
 
     def heal_material_boss(self, request):
         from src.task.VerifiedDomainCombat import DomainBattleFailed
-        healer = next(c for c in self.chars if c.char_name in self.HEALERS and c.confidence >= .8)
+        from src.task.BaseCombatTask import NotInCombatException
+        healers = self.healing_candidates()
+        healer = healers[0] if healers else None
         injured = self.chars[request.slot]
         self._boss_healing = True
         self._boss_heal_last = time.monotonic()
@@ -130,25 +172,27 @@ class MaterialBossHealing(BossHealthReading, BattleEvidence):
         # during rescue. The next rotation will reacquire if required.
         self._boss_acquiring = False
         event = {'slot': request.slot + 1, 'before': request.hp,
-                 'healer': healer.char_name, 'status': 'started'}
+                 'healer': healer.char_name if healer else None, 'status': 'started'}
         self.result.setdefault('healing', []).append(event)
         try:
             self.mouse_up()
             self.held_attack_interrupted = True
-            if request.hp[0] <= .2 * request.hp[1]:
+            if request.hp[0] <= .2 * request.hp[1] or (healer is None and request.hp[0] <= .4 * request.hp[1]):
                 replacement = self.verify_healing_replacement(request.slot)
-                injured.recovery_until = (float('inf') if request.hp[0] == 0
-                                          else time.monotonic() + 30)
-                event.update(status='critical_swap', resume_slot=replacement.index + 1)
-                self.log_info(f'Boss critical HP: continue with healthy ally: {event}')
+                self.quarantine_injured(injured)
+                status = 'critical_swap' if request.hp[0] <= .2 * request.hp[1] else 'protective_swap'
+                event.update(status=status, resume_slot=replacement.index + 1)
+                self.log_info(f'Low HP: continue with verified healthy ally: {event}')
                 return
+            if healer is None:
+                self.fail_battle('无可执行治疗的健康角色；返回治疗')
             if injured is healer and healer.char_name == 'char_suisui':
                 replacement = self.verify_healing_replacement(request.slot)
                 event['replacement'] = replacement.index + 1
                 # Do not expose the wounded healer again just to measure a
                 # possible regeneration tick. Keep her off field and let the
                 # verified healthy ally finish its rotation; no heal is claimed.
-                injured.recovery_until = time.monotonic() + 30
+                self.quarantine_injured(injured)
                 event.update(status='self_rescue_deferred', resume_slot=replacement.index + 1)
                 self.log_info(f'Wounded Suisui remains off field: {event}')
                 return
@@ -156,13 +200,19 @@ class MaterialBossHealing(BossHealthReading, BattleEvidence):
                 self.healing_switch(healer)
                 event['action_issued'] = bool(healer.emergency_heal_actions())
                 if not event['action_issued']:
-                    if healer.char_name in self.HEALERS:
+                    # Ally rescue and self rescue use separate request clocks.
+                    # A failed healer must back off across both paths, otherwise
+                    # a second request immediately interrupts the healthy ally.
+                    # This only suppresses another healing attempt; it does not
+                    # exclude the healer from normal combat or critical swaps.
+                    healer.heal_retry_after = time.monotonic() + 25
+                    if callable(getattr(healer, 'emergency_heal_actions', None)):
                         # Healing resources may be empty after a recent rescue.
                         # Keep the wounded character off field while a verified
                         # healthy ally continues the encounter. The regular
                         # health guard still forces retreat below 20% HP.
                         replacement = self.verify_healing_replacement(request.slot)
-                        injured.recovery_until = time.monotonic() + 30
+                        self.quarantine_injured(injured)
                         event['status'] = 'deferred_to_healthy_ally'
                         event['resume_slot'] = replacement.index + 1
                         self.log_info(f'Boss healer rescue deferred: {event}')
@@ -178,21 +228,41 @@ class MaterialBossHealing(BossHealthReading, BattleEvidence):
                 hp = self.read_boss_hp()
                 if hp and self.in_team()[1] == request.slot:
                     event['after'] = hp
-                    if hp[0] <= .2 * hp[1]:
-                        self.fail_battle('治疗验证期间生命危急；返回信标')
+                    if hp[0] <= .4 * hp[1]:
+                        # Keep replacement inside the common victory/error
+                        # handling: the encounter may end during this switch.
+                        replacement = self.verify_healing_replacement(request.slot)
+                        self.quarantine_injured(injured)
+                        if healer is not None:
+                            healer.heal_retry_after = time.monotonic() + 25
+                        event.update(status='unverified_heal_deferred',
+                                     resume_slot=replacement.index + 1)
+                        self.log_info(f'Healing observation stopped at low HP; healthy ally verified: {event}')
+                        return True
                     if getattr(self, '_hp_observation', {}).get('approximate_portrait_hp'):
                         return False  # A coarse bar cannot prove numeric healing ticks.
                     return self.healing_progress(request.hp, readings, hp)
                 return False
             if not self.wait_until(recovered, time_out=4, raise_if_not_found=False):
                 self.fail_battle('原受伤角色回血未确认；返回信标')
+            if event['status'] == 'unverified_heal_deferred':
+                return
             event['status'] = 'verified'
             event['positive_hp_readings'] = readings
             self._boss_hp_samples = {}
             self.log_info(f'Boss healer rescue verified: {event}')
+        except NotInCombatException:
+            if self.material_victory_visible():
+                self._battle_end_seen = True
+                event['status'] = 'victory_during_healing'
+                self.log_info('Victory verified during healer action; proceed to reward')
+                return
+            event['status'] = 'failed'
+            self.fail_battle('治疗动作期间战斗状态丢失，胜利未确认；返回治疗')
         except Exception:
             event['status'] = 'failed'
             raise
         finally:
             self._boss_healing = False
+            self.in_liberation = False
             self.mouse_up()

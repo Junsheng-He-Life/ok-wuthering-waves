@@ -99,6 +99,9 @@ class DesktopWindow(QMainWindow):
         self.hotkey.toggled.connect(self.controller.pause_or_resume)
         self.controller.changed.connect(self.on_progress)
         self.controller.completed.connect(self.on_completed)
+        self.controller.line.connect(lambda line: self.run_page.run_log.append(line + '\n'))
+        self.controller.changed.connect(lambda _: self.run_page.run_log.title.setText(
+            '运行日志 · ' + getattr(self.controller, 'log_path', Path('等待启动')).name))
         self._connect_actions()
         self.load_preferences()
         self.update_budget()
@@ -178,6 +181,7 @@ class DesktopWindow(QMainWindow):
         run.kind_changed.connect(self.on_kind_changed)
         run.catalog.clicked.connect(lambda: self.run_action('catalog'))
         run.preflight.clicked.connect(lambda: self.run_action('preflight'))
+        run.material_display.clicked.connect(self.open_material_display)
         run.start.clicked.connect(self.start_farming)
         run.pause.clicked.connect(self.controller.pause_or_resume)
         run.stop.clicked.connect(self.controller.stop)
@@ -232,6 +236,9 @@ class DesktopWindow(QMainWindow):
         run.stage.addItem('跟随当前三人培养目标' if kind == 'materials' else '先读取游戏中的关卡列表', '')
         run.stage.setEnabled(kind != 'materials')
         run.catalog.setText('扫描材料需求' if kind == 'materials' else '读取关卡')
+        run.cross_team.setVisible(kind == 'materials')
+        run.team_scope.setVisible(kind == 'materials' and run.cross_team.isChecked())
+        run.material_display.setVisible(kind == 'materials')
         run.claim_rewards.setChecked(True)
         run.claim_rewards.setEnabled(kind != 'materials')
         run.waveplates.setValue(80 if kind == 'materials' else 120)
@@ -304,6 +311,17 @@ class DesktopWindow(QMainWindow):
         if not self._guard_action(action):
             return
         args = action_arguments(action, self.run_page.kind, self.run_page.stage.currentData() or '')
+        if action == 'catalog' and self.run_page.kind == 'materials' and self.run_page.cross_team.isChecked():
+            from src.task.PresetTeamUI import parse_team_numbers
+            try:
+                parse_team_numbers(self.run_page.target_teams.text())
+                parse_team_numbers(self.run_page.combat_teams.text())
+            except ValueError as error:
+                self.show_message('队伍范围无效', str(error))
+                return
+            args += ['--target-teams', self.run_page.target_teams.text(),
+                     '--combat-teams', self.run_page.combat_teams.text(), '--continuous']
+            args[args.index('--timeout') + 1] = '0'
         if action == 'preflight' and self.run_page.experimental.isChecked():
             args += ['--desktop-experimental']
         self.begin(args, action)
@@ -316,7 +334,9 @@ class DesktopWindow(QMainWindow):
         request = DesktopRequest(kind=run.kind, stage=run.stage.currentData() or '',
             claims=run.claims.value(), waveplates=run.waveplates.value(),
             solvents=run.solvents.value() if use else 0, reserve=run.reserve.value() if use else 0,
-            claim_rewards=run.claim_rewards.isChecked(), experimental=run.experimental.isChecked())
+            claim_rewards=run.claim_rewards.isChecked(), experimental=run.experimental.isChecked(),
+            target_teams=run.target_teams.text() if run.kind == 'materials' and run.cross_team.isChecked() else '',
+            combat_teams=run.combat_teams.text() if run.kind == 'materials' and run.cross_team.isChecked() else '')
         try:
             if request.solvents and not self.state.get('can_use_solvents'):
                 raise ValueError('资源历史尚未核对，暂不能使用溶剂。请查看“首次设置”。')
@@ -324,6 +344,14 @@ class DesktopWindow(QMainWindow):
             self.begin(args, 'farm')
         except (ValueError, RuntimeError) as error:
             self.show_message('还不能开始', str(error))
+
+    def open_material_display(self):
+        if self.preview:
+            return
+        from PySide6.QtCore import QProcess
+        import sys
+        QProcess.startDetached(sys.executable, [str(self.root / 'scripts/material_queue_window.py'),
+                                             '--interactive'], str(self.root))
 
     def begin(self, arguments, action, runner='ultrawide_trial.py'):
         try:
@@ -342,6 +370,7 @@ class DesktopWindow(QMainWindow):
         run.stop.setVisible(active)
         run.progress_bar.setRange(0, 0 if active else 1)
         for control in [run.catalog, run.preflight, run.stage, run.experimental,
+                        run.cross_team, run.target_teams, run.combat_teams,
                         *run.kind_buttons.values(), run.claim_rewards, run.waveplates,
                         run.claims, run.refill, run.solvents, run.reserve, self.settings_page.initialize,
                         self.settings_page.permissions, self.settings_page.diagnose,

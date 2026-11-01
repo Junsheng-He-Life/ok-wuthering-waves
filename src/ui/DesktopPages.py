@@ -1,10 +1,11 @@
 """View widgets; game actions are connected by DesktopWindow only."""
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (QBoxLayout, QButtonGroup, QCheckBox, QComboBox, QFrame,
-    QHBoxLayout, QListWidget, QPlainTextEdit, QProgressBar, QSpinBox,
+    QHBoxLayout, QLineEdit, QListWidget, QPlainTextEdit, QProgressBar, QSpinBox,
     QVBoxLayout, QWidget)
 
 from src.ui.DesktopStyle import button, card, field, label, row
+from src.ui.LiveRunLog import LiveRunLog
 
 
 def spin(value, maximum, step=1, minimum=0):
@@ -62,6 +63,23 @@ class RunPage(QWidget):
         target_layout.addLayout(row(self.stage, self.catalog))
         self.task_note = label('关卡列表从当前账号读取。开始前会重新检查实际队伍。', 'muted', True)
         target_layout.addWidget(self.task_note)
+        self.cross_team = QCheckBox('按保存队伍扫描材料目标')
+        target_layout.addWidget(self.cross_team)
+        self.team_scope = QWidget()
+        scope_layout = QVBoxLayout(self.team_scope)
+        scope_layout.setContentsMargins(0, 0, 0, 0)
+        self.target_teams = QLineEdit('1,2,3,4,5')
+        self.combat_teams = QLineEdit('2,4,5')
+        scope_layout.addLayout(field('需要材料的队伍', self.target_teams))
+        scope_layout.addLayout(field('允许用于战斗的队伍', self.combat_teams))
+        scope_layout.addWidget(label('按图标核验材料名称，合并共用库存。持续运行至缺口满足、额度耗尽或需要处理；不受单轮10分钟限制。', 'muted', True))
+        target_layout.addWidget(self.team_scope)
+        self.cross_team.toggled.connect(self.team_scope.setVisible)
+        self.cross_team.hide()
+        self.team_scope.hide()
+        self.material_display = button('打开材料图标与缺口')
+        target_layout.addWidget(self.material_display)
+        self.material_display.hide()
         left.addWidget(target)
 
         resources, budget_layout = card('02  设置本轮额度')
@@ -124,10 +142,13 @@ class RunPage(QWidget):
         support, support_layout = card('内测范围')
         support_layout.addWidget(label('简体中文 · macOS · 游戏保持前台', wrap=True))
         support_layout.addWidget(label('优先验证：玄翎 / 弗洛洛 / 穗穗\n其他组合会明确显示验证状态。', 'muted', True))
-        support_layout.addWidget(label('单轮最长 10 分钟。暂停后可继续；关闭面板会先停止任务。', 'muted', True))
+        self.runtime_note = label('普通任务单轮最长10分钟；跨队材料持续至额度或停止条件。暂停后可继续，关闭面板会先停止任务。', 'muted', True)
+        support_layout.addWidget(self.runtime_note)
         right.addWidget(support)
         right.addStretch(1)
         layout.addLayout(columns)
+        self.run_log = LiveRunLog('.', poll=False)
+        layout.addWidget(self.run_log)
 
         progress, progress_layout = card('本轮进度')
         self.progress_card = progress

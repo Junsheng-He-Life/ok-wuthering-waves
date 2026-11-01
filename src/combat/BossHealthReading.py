@@ -4,6 +4,15 @@ from src.combat.PortraitHealth import portrait_health
 
 class BossHealthReading:
     def read_boss_hp(self):
+        # A rejected cached capture is not another independent observation.
+        # Refresh only on this exceptional path; routine healthy reads retain
+        # their fast path and low HP still requires two different captures.
+        previous = getattr(self, '_hp_observation', None)
+        sequence = getattr(getattr(getattr(self, '_executor', None), 'method', None),
+                           '_delivered_frame_sequence', None)
+        if (previous and previous.get('rejected') and sequence is not None
+                and sequence == previous.get('capture_sequence')):
+            self.next_frame()
         hp = self.read_current_hp()
         observation = getattr(self, '_hp_observation', None)
         # Isolated unit-test adapters may supply numeric HP without a capture.
@@ -20,9 +29,6 @@ class BossHealthReading:
         if bar is not None and abs(bar-ratio) > .22:
             observation['rejected'] = 'numeric_portrait_disagreement'
             self.save_battle_trigger('血量OCR与头像血条不符，读数被拒绝，未判定濒死')
-            if bar >= .5:
-                observation['approximate_portrait_hp'] = True
-                return int((bar-.05)*hp[1]), hp[1]
             return None
         if ratio > .4:
             return hp
@@ -43,9 +49,6 @@ class BossHealthReading:
         if bars2[slot] is not None and abs(bars2[slot]-second[0]/second[1]) > .22:
             second_observation['rejected'] = 'numeric_portrait_disagreement'
             self.save_battle_trigger('复核血量与头像血条不符，未判定濒死')
-            if bars2[slot] >= .5:
-                second_observation['approximate_portrait_hp'] = True
-                return int((bars2[slot]-.05)*second[1]), second[1]
             return None
         if abs(second[0]/second[1]-ratio) > .12:
             second_observation['rejected'] = 'numeric_readings_disagree'

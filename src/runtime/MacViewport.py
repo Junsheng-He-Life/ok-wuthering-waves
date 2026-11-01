@@ -23,14 +23,22 @@ def opaque_game_frame(bgra):
     """Ignore isolated recording badges when finding the full window content."""
     height, width = bgra.shape[:2]
     mask = bgra[:, :, 3] >= 254
+    # Most full-screen frames are entirely opaque. Avoid two full-image
+    # reductions and resizing a strided BGR view back to its original size on
+    # every captured frame. cvtColor makes an independent contiguous BGR image;
+    # the capture buffer may be reused immediately after this call.
+    if mask.all():
+        return cv2.cvtColor(bgra, cv2.COLOR_BGRA2BGR)
     rows = np.flatnonzero(mask.mean(axis=1) >= .9)
     columns = np.flatnonzero(mask.mean(axis=0) >= .9)
     if not len(rows) or not len(columns):
-        return bgra[:, :, :3].copy()
+        return cv2.cvtColor(bgra, cv2.COLOR_BGRA2BGR)
     x0, x1 = int(columns[0]), int(columns[-1]) + 1
     y0, y1 = int(rows[0]), int(rows[-1]) + 1
     if x1-x0 < .9*width or y1-y0 < .9*height:
-        return bgra[:, :, :3].copy()
+        return cv2.cvtColor(bgra, cv2.COLOR_BGRA2BGR)
+    if (x0, y0, x1, y1) == (0, 0, width, height):
+        return cv2.cvtColor(bgra, cv2.COLOR_BGRA2BGR)
     return cv2.resize(bgra[y0:y1, x0:x1, :3], (width, height))
 
 

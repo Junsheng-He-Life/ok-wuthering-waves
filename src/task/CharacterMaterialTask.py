@@ -514,11 +514,13 @@ class CharacterMaterialTask(DomainTask):
         if desired_target == USE_CURRENT_TARGET:
             return True
         current_target = self.current_material_target_name()
+        self._material_target_observation = {'expected': desired_target,
+                                             'observed': current_target}
         desired = self._normalize_material_text(desired_target)
         current = self._normalize_material_text(current_target)
-        if len(desired) == 1:
-            return desired == current
-        return bool(desired and current and (desired in current or current in desired))
+        # Normalize decoration, but never accept a different character whose
+        # name contains the observed text (for example 鉴心 versus 心).
+        return bool(desired and desired == current)
 
     def _visible_target_choice(self, desired_target):
         desired = self._normalize_material_text(desired_target)

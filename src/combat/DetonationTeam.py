@@ -48,16 +48,18 @@ class DetonationTeam:
         started = max(char.last_switch_in_time, getattr(self, 'combat_start', 0))
         # Lower recharge equipment can need more attacks. Bound a stalled or
         # unreadable ring so it cannot indefinitely exclude the healer.
-        limit = 24 if char.char_name == 'char_chisa' else 20
-        policy = getattr(self, 'allow_opportunistic_skills', None)
-        if callable(policy) and policy() is True:
-            # Repeated Chisa callbacks do not represent fresh field entries.
-            # Once her support chain is spent, a stalled ring must not keep
-            # her exposed for the legacy 24-second buildup window.
-            limit = 12
-            if char.char_name == 'char_chisa':
-                limit = 6 if getattr(char, '_detonation_chain_done', False) else 8
+        # Apply the short support window to material domains as well as echoes.
+        # Repeated callbacks are one field visit, not a fresh buildup window.
+        limit = 12
+        if char.char_name == 'char_chisa':
+            limit = 6 if getattr(char, '_detonation_chain_done', False) else 8
         return started > 0 and time.time() - started < limit
+
+    def use_bounded_liberation_retry(self):
+        if self.detonation_team_active():
+            return True
+        fallback = getattr(super(), 'use_bounded_liberation_retry', None)
+        return bool(fallback and fallback())
 
     def use_sparse_con_ring_detection(self):
         return self.detonation_team_active() or super().use_sparse_con_ring_detection()
