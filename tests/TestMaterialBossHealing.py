@@ -194,6 +194,48 @@ class TestMaterialBossHealing(unittest.TestCase):
         self.assertIs(task.chars[0], task.healing_switch.call_args.args[0])
         self.assertFalse(task._boss_healing)
 
+    def test_unsafe_healing_verification_yields_without_claiming_recovery(self):
+        for name in ('char_douling', 'char_chisa', 'char_verina'):
+            for current_hp in (3900, 1900):
+                task = self.rescue((current_hp, 10000))
+                task.chars[2].char_name = name
+                task.chars[1].index = 1
+                task.verify_healing_replacement = Mock(return_value=task.chars[1])
+                task.heal_material_boss(BossHealRequested(0, (6000, 10000)))
+                event = task.result['healing'][0]
+                self.assertEqual('unverified_heal_deferred', event['status'])
+                self.assertEqual(2, event['resume_slot'])
+                self.assertEqual((current_hp, 10000), event['after'])
+                self.assertNotIn('positive_hp_readings', event)
+                self.assertTrue(task.chars[0].recovery_needs_health)
+                task.verify_healing_replacement.assert_called_once_with(0)
+                self.assertFalse(task._boss_healing)
+                self.assertFalse(task.in_liberation)
+
+    def test_victory_during_unsafe_heal_replacement_still_requires_marker(self):
+        from src.task.BaseCombatTask import NotInCombatException
+        for victory in (True, False):
+            task = self.rescue((1900, 10000))
+            task.verify_healing_replacement = Mock(side_effect=NotInCombatException('combat ended'))
+            task.material_victory_visible = Mock(return_value=victory)
+            if victory:
+                task.heal_material_boss(BossHealRequested(0, (6000, 10000)))
+                self.assertEqual('victory_during_healing', task.result['healing'][0]['status'])
+                self.assertTrue(task._battle_end_seen)
+            else:
+                with self.assertRaisesRegex(DomainBattleFailed, '胜利未确认'):
+                    task.heal_material_boss(BossHealRequested(0, (6000, 10000)))
+            self.assertFalse(task._boss_healing)
+
+    def test_unsafe_healing_still_stops_without_verified_replacement(self):
+        task = self.rescue((1900, 10000))
+        task.verify_healing_replacement = Mock(side_effect=DomainBattleFailed('no healthy ally'))
+        with self.assertRaisesRegex(DomainBattleFailed, 'no healthy ally'):
+            task.heal_material_boss(BossHealRequested(0, (6000, 10000)))
+        self.assertEqual('failed', task.result['healing'][0]['status'])
+        self.assertFalse(task._boss_healing)
+        task.mouse_up.assert_called()
+
     def test_healer_hp_or_no_gain_never_counts_as_success(self):
         for hp, slot in [((5000,10000),0), ((10000,10000),2)]:
             task = self.rescue(hp)

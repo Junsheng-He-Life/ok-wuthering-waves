@@ -1,6 +1,7 @@
 [
   {
     "fixture": "world-icon-replay-0.png",
+    "source": "logs/preflight-errors/1793497479499309000.png",
     "crop_xyxy": [
       0,
       0,
@@ -11,6 +12,7 @@
   },
   {
     "fixture": "world-icon-replay-1.png",
+    "source": "assets/macos-world-1920.png",
     "crop_xyxy": [
       0,
       0,
@@ -21,6 +23,7 @@
   },
   {
     "fixture": "world-icon-replay-2.png",
+    "source": "logs/character_material_combat_frames/1793496897647353000.jpg",
     "crop_xyxy": [
       0,
       0,
@@ -31,6 +34,7 @@
   },
   {
     "fixture": "world-icon-replay-3.png",
+    "source": "logs/character_material_combat_frames/1793496942433483000.jpg",
     "crop_xyxy": [
       0,
       0,
@@ -41,6 +45,7 @@
   },
   {
     "fixture": "world-icon-replay-4.png",
+    "source": "logs/reward-results/1793496985198226000.png",
     "crop_xyxy": [
       0,
       0,
@@ -48,5 +53,16 @@
       100
     ],
     "expected_world": false
+  },
+  {
+    "fixture": "world-icon-replay-5.png",
+    "source": "logs/preflight-errors/1793507341344876000.png",
+    "crop_xyxy": [
+      0,
+      0,
+      110,
+      100
+    ],
+    "expected_world": true
   }
 ]

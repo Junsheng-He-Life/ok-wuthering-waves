@@ -46,6 +46,16 @@ class TestRecordedCombatHealth(unittest.TestCase):
         self.assertTrue(task._hp_observation['alternate_scale'])
         task.frame[:] = 0
         self.assertIsNone(task.read_current_hp())
+    def test_extra_leading_digit_uses_same_frame_small_scale_numeric_retry(self):
+        task = RecordedHp(self.engine)
+        task.frame = cv2.imread(str(Path(__file__).parent/'images/combat-hp-4730-20261101.png'))
+        task.in_team = lambda: (True, 2, 3)
+        self.assertEqual((4730, 17578), task.read_current_hp())
+        self.assertEqual(['14730/17578'], task._hp_observation['raw'])
+        self.assertEqual(['4730/17578'], task._hp_observation['alternate_raw'])
+        self.assertTrue(task._hp_observation['alternate_scale'])
+        self.assertEqual(12, task._hp_observation['capture_sequence'])
+
     def test_same_frame_portrait_supports_active_actor_without_fake_healing(self):
         frame = cv2.imread(str(Path(__file__).parent/'images/combat-hp-9516-20261101.png'))
         bars = portrait_health(frame)

@@ -56,6 +56,18 @@ class TestJinhsiEchoGuards(unittest.TestCase):
         char.send_resonance_key.assert_called_once()
         char.click_liberation.assert_not_called()
 
+    def test_delayed_cooldown_frame_is_checked_before_retry_deadline(self):
+        char = self.character()
+        # Capture/guard work can return the confirming frame after the input
+        # budget expires. Consume it without issuing another E or losing stage.
+        char.task.next_frame.side_effect = lambda: setattr(self, 'now', 103.)
+        char.has_cd.side_effect = lambda _: self.now >= 103.
+        self.invoke(char.handle_intro)
+        char.send_resonance_key.assert_called_once()
+        char.click_liberation.assert_called_once_with(send_click=True)
+        self.assertTrue(char.incarnation)
+        self.assertFalse(char.incarnation_cd)
+
     def test_visible_incarnation_hud_allows_rescue_before_input(self):
         char = self.character()
         request = BossHealRequested(0, (2500, 10000))

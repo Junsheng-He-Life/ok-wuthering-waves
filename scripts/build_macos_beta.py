@@ -29,6 +29,7 @@ APP_FILES = (
     *(f'assets/preset-team-digits/{number:02}.png' for number in range(1, 7)),
     'assets/echo_model/echo.onnx', 'assets/images/leviathan-reward-orb-1920.png',
     'assets/images/map-beacon-huanglong-1920.png', 'assets/images/map-nexus-huanglong-1920.png',
+    'assets/images/douling-heal-burst-1920.png', 'assets/images/douling-heal-regen-1920.png',
     'docs/beta-user-guide.md', 'docs/beta-release-2026-10-30.md', 'docs/development.md',
     'docs/material-combat-update-2026-11-01.md',
     'docs/images/desktop-main.png', 'docs/images/desktop-small.png',
@@ -85,7 +86,8 @@ def export_sources(app, framework, stage):
             copy_file(framework, source.relative_to(framework), framework_target, source_hashes)
     # Whole-image consumers use these small icon crops; full captures are omitted.
     from PIL import Image
-    for name in ('leviathan-reward-orb-1920.png', 'map-beacon-huanglong-1920.png', 'map-nexus-huanglong-1920.png'):
+    for name in ('leviathan-reward-orb-1920.png', 'map-beacon-huanglong-1920.png', 'map-nexus-huanglong-1920.png',
+                 'douling-heal-burst-1920.png', 'douling-heal-regen-1920.png'):
         with Image.open(app / 'assets/images' / name) as crop:
             if max(crop.size) > 256:
                 raise ValueError(f'{name} is no longer a small recognition crop; review required')

@@ -4,6 +4,15 @@ from src.combat.PortraitHealth import portrait_health
 
 class BossHealthReading:
     def read_boss_hp(self):
+        # A rejected cached capture is not another independent observation.
+        # Refresh only on this exceptional path; routine healthy reads retain
+        # their fast path and low HP still requires two different captures.
+        previous = getattr(self, '_hp_observation', None)
+        sequence = getattr(getattr(getattr(self, '_executor', None), 'method', None),
+                           '_delivered_frame_sequence', None)
+        if (previous and previous.get('rejected') and sequence is not None
+                and sequence == previous.get('capture_sequence')):
+            self.next_frame()
         hp = self.read_current_hp()
         observation = getattr(self, '_hp_observation', None)
         # Isolated unit-test adapters may supply numeric HP without a capture.

@@ -27,7 +27,7 @@ MODULES = (
     'TestDomainLocationFallback', 'TestMaterialNeedsReport', 'TestBattleEvidence',
     'TestPortraitHealth', 'TestSuisuiRotation', 'TestSuisuiHud',
     'TestEchoFarmTask', 'TestEchoFailureRecovery', 'TestEchoCombatPolicy', 'TestEchoSkillOpportunities',
-    'TestEchoAlternateTeamSkills',
+    'TestEchoAlternateTeamSkills', 'TestDoulingHeavyGuard',
     'TestXinRotation', 'TestXinRecognition', 'TestJinhsiEchoGuards', 'TestDetonationEchoState',
     'TestCartethyiaEchoGuards', 'TestAlternateHealerRescue', 'TestEchoIntroSupport',
     'TestCombatSwitch', 'TestRecordedConcertoRings',

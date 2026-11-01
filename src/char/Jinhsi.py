@@ -102,14 +102,6 @@ class Jinhsi(BaseChar):
         responsive = self._echo_rotation_enabled()
         while True:
             elapsed = time.time() - start
-            if responsive and elapsed > self.ECHO_INTRO_RETRY_SECONDS:
-                # A missing cooldown is not evidence that E entered its next
-                # stage. Yield to ready R/attacks without inventing that state.
-                self.logger.info('Jinhsi E stage unconfirmed; resume R and normal attacks')
-                self.incarnation_cd = False
-                self.click_liberation(send_click=True, wait_if_cd_ready=0)
-                self.continues_normal_attack(.3)
-                return
             if self.has_cd('resonance'):
                 if 0.3 < elapsed < 1.5:
                     self.incarnation_cd = True
@@ -120,6 +112,14 @@ class Jinhsi(BaseChar):
                 elif elapsed > 1.5:
                     # self.task.screenshot('incarnation_finished')
                     break
+            elif responsive and elapsed > self.ECHO_INTRO_RETRY_SECONDS:
+                # A missing cooldown is not evidence that E entered its next
+                # stage. Yield to ready R/attacks without inventing that state.
+                self.logger.info('Jinhsi E stage unconfirmed; resume R and normal attacks')
+                self.incarnation_cd = False
+                self.click_liberation(send_click=True, wait_if_cd_ready=0)
+                self.continues_normal_attack(.3)
+                return
             else:
                 self.send_resonance_key(interval=0.1)
             self.task.next_frame()

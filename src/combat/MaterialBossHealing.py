@@ -228,14 +228,25 @@ class MaterialBossHealing(BossHealthReading, BattleEvidence):
                 hp = self.read_boss_hp()
                 if hp and self.in_team()[1] == request.slot:
                     event['after'] = hp
-                    if hp[0] <= .2 * hp[1]:
-                        self.fail_battle('治疗验证期间生命危急；返回信标')
+                    if hp[0] <= .4 * hp[1]:
+                        # Keep replacement inside the common victory/error
+                        # handling: the encounter may end during this switch.
+                        replacement = self.verify_healing_replacement(request.slot)
+                        self.quarantine_injured(injured)
+                        if healer is not None:
+                            healer.heal_retry_after = time.monotonic() + 25
+                        event.update(status='unverified_heal_deferred',
+                                     resume_slot=replacement.index + 1)
+                        self.log_info(f'Healing observation stopped at low HP; healthy ally verified: {event}')
+                        return True
                     if getattr(self, '_hp_observation', {}).get('approximate_portrait_hp'):
                         return False  # A coarse bar cannot prove numeric healing ticks.
                     return self.healing_progress(request.hp, readings, hp)
                 return False
             if not self.wait_until(recovered, time_out=4, raise_if_not_found=False):
                 self.fail_battle('原受伤角色回血未确认；返回信标')
+            if event['status'] == 'unverified_heal_deferred':
+                return
             event['status'] = 'verified'
             event['positive_hp_readings'] = readings
             self._boss_hp_samples = {}

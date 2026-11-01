@@ -24,7 +24,7 @@ class TestWorldIconRecognition(unittest.TestCase):
         return BaseWWTask.find_world_earth_icon(task)
 
     def test_bright_and_dark_world_backgrounds_keep_the_same_globe(self):
-        for index in (0, 1):
+        for index in (0, 1, 5):
             with self.subTest(index=index):
                 self.assertTrue(self.matches(index))
 

@@ -154,7 +154,24 @@ class MaterialRunUI(MaterialEntryUI, MaterialRefillUI, MaterialRewardUI, Materia
             if match:
                 current, total = match if isinstance(match, tuple) else map(int, match.groups())
                 if 0 <= current <= total and total > 0:
+                    bar = portrait_ratio()
+                    if bar is not None and abs(current / total - bar) > .22:
+                        self._hp_observation['rejected'] = 'numeric_portrait_disagreement'
+                        # A confident OCR result can still include a HUD stroke
+                        # as an extra digit. Re-read the SAME pixels at smaller
+                        # scale; never derive numeric HP from the portrait ratio.
+                        if not alternate_scale:
+                            alternate_scale = True
+                            alternate = self.ocr(box=box, threshold=.85,
+                                frame=self._hp_observation_frame,
+                                frame_processor=self.pad_hp_text_small)
+                            self._hp_observation.update(alternate_scale=True,
+                                alternate_raw=[row.name for row in alternate],
+                                retry_reason='numeric_portrait_disagreement')
+                            readings.extend(alternate)
+                        continue
                     self._known_hp_totals = known_totals | {total}
+                    self._hp_observation.pop('rejected', None)
                     self._hp_observation['parsed'] = [current, total]
                     if isinstance(match, tuple):
                         self._hp_observation['repaired_separator'] = True
@@ -199,7 +216,20 @@ class MaterialRunUI(MaterialEntryUI, MaterialRefillUI, MaterialRewardUI, Materia
             raise RuntimeError('world HUD required before direct beacon recovery')
         self.send_key('m', after_sleep=1)
         point = self.stable_map_waypoint()
+        for attempt in range(2):
+            if point:
+                break
+            cv2.imwrite(f'logs/healing-map-search-{attempt}.png', self.frame)
+            if not self.map_page_visible():
+                break
+            # The local view can contain only the player's occluded beacon.
+            # Widen the verified map, then repeat the same icon/color checks.
+            self.scroll(int(self.width * .5), int(self.height * .5), -4)
+            self.sleep(1)
+            self.next_frame()
+            point = self.stable_map_waypoint()
         if not point:
+            cv2.imwrite('logs/healing-map-unresolved.png', self.frame)
             raise RuntimeError('no verified waypoint visible on map')
         cv2.imwrite('logs/healing-waypoint-before-click.png', self.frame)
         self.log_info(f'healing waypoint: {point}')
@@ -240,6 +270,10 @@ class MaterialRunUI(MaterialEntryUI, MaterialRefillUI, MaterialRewardUI, Materia
             health.append(hp)
         self.log_info(f'healed all team members: {health}')
         return True
+
+    def map_page_visible(self):
+        return bool(self.menu_text(r'探索度.*', (0, 0, .3, .2), timeout=.3)
+                    and self.menu_text(r'切换地图', (.65, .85, .95, 1), timeout=.3))
 
     def stable_map_waypoint(self):
         previous, stationary_since = None, 0
@@ -341,8 +375,13 @@ class MaterialRunUI(MaterialEntryUI, MaterialRefillUI, MaterialRewardUI, Materia
                 raise RuntimeError('leave-domain dialog not verified')
             self.menu_click(r'确认|Confirm', (.5, .5, .8, .8))
         elif not self.find_world_earth_icon():
-            cv2.imwrite('logs/unknown-domain-exit.png', self.frame)
-            raise RuntimeError('副本退出状态未识别；未发出退出操作，不等待加载')
+            if self.map_page_visible():
+                # A failed healing attempt can leave its verified map open.
+                # Closing it is navigation recovery, not a second domain exit.
+                self.return_to_world()
+            else:
+                cv2.imwrite('logs/unknown-domain-exit.png', self.frame)
+                raise RuntimeError('副本退出状态未识别；未发出退出操作，不等待加载')
         # The party HUD can remain visible before the loading screen starts.
         # Require the overworld icon, rather than accepting that stale HUD.
         def overworld_verified():

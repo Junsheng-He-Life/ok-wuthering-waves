@@ -59,7 +59,8 @@ def combat_diagnostics(task):
                 setattr(interaction, name, wrap(name, method))
         for name in ('check_combat', 'next_frame', 'read_current_hp', 'refresh_cd',
                      'find_battle_reward_marker', 'in_team_and_world',
-                     'manual_domain_exit_requested', 'get_current_con'):
+                     'manual_domain_exit_requested', 'get_current_con',
+                     'native_attack_string', 'use_ready_combat_skill'):
             method = getattr(task, name, None)
             if callable(method):
                 task_originals[name] = method

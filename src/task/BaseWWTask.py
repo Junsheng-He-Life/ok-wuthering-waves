@@ -493,6 +493,11 @@ class BaseWWTask(BaseTask):
             earth = self.find_one('macos_world_earth_1920', threshold=.8,
                                   horizontal_variance=.005, vertical_variance=.005,
                                   canny_lower=100, canny_higher=200)
+        if not earth:
+            # A second real native globe covers bright sky behind this
+            # translucent control; same location/threshold and world gates.
+            earth = self.find_one('macos_world_earth_bright_1920', threshold=.8,
+                                  horizontal_variance=.005, vertical_variance=.005)
         return earth
 
     def in_illusive_realm(self):

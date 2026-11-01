@@ -79,7 +79,8 @@ class TestBetaPackage(unittest.TestCase):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text('fixture')
         self.assets(app)
-        for name in ('leviathan-reward-orb-1920.png', 'map-beacon-huanglong-1920.png', 'map-nexus-huanglong-1920.png'):
+        for name in ('leviathan-reward-orb-1920.png', 'map-beacon-huanglong-1920.png', 'map-nexus-huanglong-1920.png',
+                     'douling-heal-burst-1920.png', 'douling-heal-regen-1920.png'):
             Image.new('RGB', (8, 8)).save(app / 'assets/images' / name)
         for relative in ('src/actual_dirty_code.py', 'configs/account.json', 'logs/player.png'):
             path = app / relative

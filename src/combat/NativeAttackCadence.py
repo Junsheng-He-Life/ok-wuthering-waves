@@ -10,9 +10,9 @@ class NativeAttackCadence:
         Visual/health checks surround at most three presses. Pause, stop,
         foreground ownership and the player's exit dialog still gate input.
         There is no worker thread or queued input surviving a rotation.
-        Count-based combos retain their press count. Duration-based filler has
-        a real wall deadline, including recognition cost, not a guessed count
-        multiplied by an assumed input latency.
+        Count-based combos retain their press count. Duration-based filler has a bounded preparation window followed by
+        a real input deadline. Initial recognition must not consume an entire
+        short attack segment; later checks still count against that deadline.
         """
         if sys.platform != 'darwin' or not getattr(self, '_verified_battle', False):
             return False
@@ -20,7 +20,10 @@ class NativeAttackCadence:
         interaction = self.executor.interaction
         if not isinstance(interaction, MacForegroundInteraction):
             return False
-        deadline = time.monotonic() + duration if duration is not None else None
+        started = time.monotonic()
+        preparation_deadline = started + max(1., duration) if duration is not None else None
+        deadline = None
+        prepared = duration is None
         def expired():
             return deadline is not None and time.monotonic() >= deadline
         remaining = count
@@ -33,7 +36,7 @@ class NativeAttackCadence:
         previous_press = None
         while remaining > 0 and not expired():
             self.check_combat()
-            if expired():
+            if (expired() or not prepared and time.monotonic() >= preparation_deadline):
                 break
             ready_skill = getattr(self, 'use_ready_combat_skill', None)
             if callable(ready_skill) and ready_skill():
@@ -43,6 +46,13 @@ class NativeAttackCadence:
                 self.next_frame()
                 self.check_combat()
                 return True
+            if not prepared:
+                # A slow/failed readiness query cannot replay stale inputs.
+                # Admit a fresh bounded segment only after its first guards.
+                if time.monotonic() >= preparation_deadline:
+                    break
+                deadline = time.monotonic() + duration
+                prepared = True
             for _ in range(min(3, remaining)):
                 self.executor.check_enabled()
                 self._raise_if_manual_exit_before_input()

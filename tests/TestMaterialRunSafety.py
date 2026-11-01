@@ -447,6 +447,15 @@ class TestWholeHpReading(unittest.TestCase):
         task.in_team = Mock(return_value=(True, 2, 3))
         return task
 
+    def test_both_numeric_scales_conflicting_with_bar_stay_unknown(self):
+        task = self.hp_task('14730/17578')
+        with patch('src.combat.PortraitHealth.portrait_health', return_value=[1., 1., .27]):
+            self.assertIsNone(task.read_current_hp())
+        self.assertEqual(2, task.ocr.call_count)
+        self.assertIsNone(task._hp_observation['parsed'])
+        self.assertEqual('numeric_portrait_disagreement', task._hp_observation['rejected'])
+        self.assertEqual(set(), task._known_hp_totals)
+
     def test_damaged_full_hp_separator_uses_current_same_frame_bar(self):
         for raw in ('38323738323', '38323/738323'):
             with self.subTest(raw=raw):

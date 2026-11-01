@@ -1359,6 +1359,11 @@
       "id": 270,
       "name": "char_xin",
       "supercategory": ""
+    },
+    {
+      "id": 271,
+      "name": "macos_world_earth_bright_1920",
+      "supercategory": ""
     }
   ],
   "images": [
@@ -2362,6 +2367,13 @@
       "file_name": "images/macos-xin-1920.png",
       "width": 1920,
       "height": 1080
+    },
+    {
+      "id": 278,
+      "width": 1920,
+      "height": 1080,
+      "file_name": "macos-world-bright-1920.png",
+      "license": 1
     }
   ],
   "annotations": [
@@ -5874,6 +5886,20 @@
       ],
       "area": 2156,
       "iscrowd": 0
+    },
+    {
+      "id": 444,
+      "image_id": 278,
+      "category_id": 271,
+      "bbox": [
+        15,
+        30,
+        36,
+        39
+      ],
+      "area": 1404,
+      "iscrowd": 0,
+      "segmentation": []
     }
   ]
 }

@@ -95,6 +95,7 @@ class TestMaterialBeaconRecovery(unittest.TestCase):
         task.next_frame = Mock()
         task.wait_in_team_and_world = Mock()
         task.stable_map_waypoint = Mock(return_value='verified beacon')
+        task.map_page_visible = Mock(return_value=False)
         task.menu_text = Mock(return_value='verified fast travel')
         task.frame = None
         return task
@@ -144,12 +145,35 @@ class TestMaterialBeaconRecovery(unittest.TestCase):
     def test_direct_recovery_without_verified_beacon_never_clicks_the_map(self):
         task = self.beacon_task()
         task.stable_map_waypoint.return_value = None
-        with self.assertRaisesRegex(RuntimeError, 'no verified waypoint'):
+        with patch('src.task.MaterialRunUI.cv2.imwrite'), self.assertRaisesRegex(RuntimeError, 'no verified waypoint'):
             task.heal_at_beacon(force_teleport=True, verify_before=False)
         task.send_key.assert_called_once_with('m', after_sleep=1)
         task.click_box.assert_not_called()
         task.menu_text.assert_not_called()
         task.verify_team_health.assert_not_called()
+
+    def test_missing_local_beacon_zooms_only_verified_map_and_rechecks(self):
+        task = self.beacon_task()
+        task.width, task.height = 1920, 1080
+        task.map_page_visible.return_value = True
+        task.scroll = Mock()
+        task.stable_map_waypoint.side_effect = [None, 'verified distant beacon']
+        with patch('src.task.MaterialRunUI.cv2.imwrite'):
+            task.heal_at_beacon(force_teleport=True, verify_before=False)
+        task.scroll.assert_called_once_with(960, 540, -4)
+        self.assertEqual('verified distant beacon', task.click_box.call_args_list[0].args[0])
+        task.verify_team_health.assert_called_once()
+
+    def test_retry_from_healing_map_closes_map_without_domain_exit(self):
+        task = self.beacon_task()
+        task.map_page_visible.return_value = True
+        task.return_to_world = Mock()
+        task.menu_text = Mock(return_value=None)
+        task.find_world_earth_icon = Mock(return_value=False)
+        task.wait_until = Mock(return_value=True)
+        task.leave_verified_domain()
+        task.return_to_world.assert_called_once()
+        task.send_key.assert_not_called()
 
     def test_missing_fast_travel_never_falls_back_to_an_unknown_click(self):
         for visible_label in (None, 'verified beacon label'):

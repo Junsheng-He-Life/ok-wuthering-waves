@@ -7,8 +7,10 @@ from src.combat.SkillAction import frame_sequence
 
 def fresh_healthy_portrait(task):
     if (getattr(task, '_verified_battle', False) is not True
-            or getattr(task, '_boss_healing', False)
-            or task.boss_policy_value('reactive_dodge', False)):
+            or getattr(task, '_boss_healing', False)):
+        return False
+    frame = getattr(task, 'frame', None)
+    if frame is None:
         return False
     now = time.monotonic()
     # Even a consistently bright portrait is periodically checked against the
@@ -16,7 +18,6 @@ def fresh_healthy_portrait(task):
     if now >= getattr(task, '_routine_numeric_due', 0):
         task._routine_numeric_due = now + 3
         return False
-    frame = task.frame
     sequence = frame_sequence(task)
     executor = getattr(task, '_executor', None)
     if (sequence is None or frame is None
@@ -34,6 +35,16 @@ def fresh_healthy_portrait(task):
     bars = portrait_health(frame)
     if bars[slot] is None or bars[slot] < .75:
         return False
+    if task.boss_policy_value('reactive_dodge', False):
+        # Echo encounters need the same fast healthy path. A falling bar must
+        # still reach numeric confirmation and the existing damage reaction.
+        samples = getattr(task, '_routine_portrait_health', {})
+        previous = samples.get(slot)
+        samples[slot] = (now, bars[slot])
+        task._routine_portrait_health = samples
+        if (previous is None or now - previous[0] > 3
+                or previous[1] - bars[slot] >= .08):
+            return False
     task._hp_observation_frame = frame.copy()
     task._hp_observation = {'monotonic': now, 'raw': [], 'parsed': None,
         'capture_sequence': sequence, 'team_verified': True, 'slot_at_decision': slot,

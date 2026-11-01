@@ -51,3 +51,14 @@ class TestHealthyHudGuard(unittest.TestCase):
             self.assertFalse(fresh_healthy_portrait(task))
             task._executor.method._delivered_frame_sequence = 11
             self.assertTrue(fresh_healthy_portrait(task))
+
+    def test_reactive_mode_fast_path_still_requires_numeric_on_damage(self):
+        task = self.task()
+        task.boss_policy_value = lambda *_: True
+        with patch('src.combat.HealthyHudGuard.time.time', return_value=100), \
+             patch('src.combat.HealthyHudGuard.time.monotonic', return_value=100), \
+             patch('src.combat.HealthyHudGuard.portrait_health', side_effect=[
+                 [1., 1., 1.], [1., 1., 1.], [1., .85, 1.]]):
+            self.assertFalse(fresh_healthy_portrait(task))
+            self.assertTrue(fresh_healthy_portrait(task))
+            self.assertFalse(fresh_healthy_portrait(task))

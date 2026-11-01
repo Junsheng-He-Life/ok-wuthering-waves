@@ -74,6 +74,15 @@ class TestPortraitHealth(unittest.TestCase):
         with patch('src.combat.BossHealthReading.portrait_health',return_value=[None]*3):
             self.assertIsNone(t.read_boss_hp())
 
+    def test_rejected_cached_frame_is_refreshed_before_reading_again(self):
+        for current_sequence, refreshes in ((1, 1), (2, 0)):
+            task = self.task([(8000, 10000)], sequences=(2,))
+            task._executor = SimpleNamespace(method=SimpleNamespace(_delivered_frame_sequence=current_sequence))
+            task._hp_observation = {'capture_sequence': 1, 'rejected': 'numeric_portrait_disagreement'}
+            with patch('src.combat.BossHealthReading.portrait_health', return_value=[1., 1., .8]):
+                self.assertEqual((8000, 10000), task.read_boss_hp())
+            self.assertEqual(refreshes, task.next_frame.call_count)
+
     def test_healing_does_not_disable_damage_dodge(self):
         t=MaterialBossGuard()
         t.read_boss_hp=Mock(return_value=(7000,10000))

@@ -49,7 +49,7 @@ class TestCombatCadence(unittest.TestCase):
                     self.assertTrue(task.native_attack_string(3))
             interaction.click.assert_not_called()
 
-    def test_duration_filler_counts_slow_guard_and_input_against_wall_deadline(self):
+    def test_initial_guard_has_bounded_preparation_then_input_deadline(self):
         task, interaction = self.native_string()
         now = [0.]
         presses = []
@@ -62,8 +62,32 @@ class TestCombatCadence(unittest.TestCase):
              patch('src.combat.NativeAttackCadence.time.monotonic', side_effect=lambda: now[0]), \
              patch('src.combat.NativeAttackCadence.time.sleep', side_effect=lambda delay: now.__setitem__(0, now[0]+delay)):
             task.native_attack_string(12, .1, duration=1)
-        self.assertEqual(2, len(presses))
-        self.assertTrue(all(stamp < 1 for stamp in presses))
+        self.assertEqual(3, len(presses))
+        self.assertTrue(all(.6 <= stamp < 1.6 for stamp in presses))
+
+    def test_short_filler_is_not_starved_by_first_health_check(self):
+        task, interaction = self.native_string()
+        now = [0.]
+        task.check_combat.side_effect = lambda: now.__setitem__(0, now[0] + .5)
+        interaction.click.side_effect = lambda **kw: now.__setitem__(0, now[0] + .08)
+        with patch('src.combat.NativeAttackCadence.sys.platform', 'darwin'), \
+             patch('src.combat.NativeAttackCadence.time.monotonic', side_effect=lambda: now[0]), \
+             patch('src.combat.NativeAttackCadence.time.sleep', side_effect=lambda d: now.__setitem__(0, now[0]+d)):
+            task.native_attack_string(2, .1, duration=.35)
+        self.assertEqual(2, interaction.click.call_count)
+        self.assertLess(now[0], 2.)
+
+    def test_expired_skill_check_does_not_start_new_attack_window(self):
+        task, interaction = self.native_string()
+        now = [0.]
+        def slow_skill_check():
+            now[0] = 2.
+            return False
+        task.use_ready_combat_skill = slow_skill_check
+        with patch('src.combat.NativeAttackCadence.sys.platform', 'darwin'), \
+             patch('src.combat.NativeAttackCadence.time.monotonic', side_effect=lambda: now[0]):
+            task.native_attack_string(2, duration=.35)
+        interaction.click.assert_not_called()
 
     def test_expired_guard_never_replays_a_stale_duration_queue(self):
         task, interaction = self.native_string()
