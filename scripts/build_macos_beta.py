@@ -25,9 +25,12 @@ APP_FILES = (
     'scripts/check_desktop_environment.py', 'scripts/desktop_runtime.sh',
     'scripts/desktop_panel.py', 'scripts/desktop_diagnose.py',
     'scripts/ultrawide_trial.py', 'scripts/bootstrap_macos.py',
+    'scripts/material_queue_window.py',
+    *(f'assets/preset-team-digits/{number:02}.png' for number in range(1, 7)),
     'assets/echo_model/echo.onnx', 'assets/images/leviathan-reward-orb-1920.png',
     'assets/images/map-beacon-huanglong-1920.png', 'assets/images/map-nexus-huanglong-1920.png',
     'docs/beta-user-guide.md', 'docs/beta-release-2026-10-30.md', 'docs/development.md',
+    'docs/material-combat-update-2026-11-01.md',
     'docs/images/desktop-main.png', 'docs/images/desktop-small.png',
 )
 APP_TREES = {'src': {'.py'}, 'icons': {'.png', '.ico', '.svg'}, 'i18n': {'.mo'}}

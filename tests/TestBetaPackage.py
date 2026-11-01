@@ -101,6 +101,9 @@ class TestBetaPackage(unittest.TestCase):
                 manifest = build(app, framework, output, 'test', archive=False)
             self.assertFalse((output / 'ok-wuthering-waves/configs').exists())
             self.assertFalse((output / 'ok-wuthering-waves/logs').exists())
+            self.assertIn('ok-wuthering-waves/scripts/material_queue_window.py', manifest['files'])
+            for number in range(1, 7):
+                self.assertIn(f'ok-wuthering-waves/assets/preset-team-digits/{number:02}.png', manifest['files'])
             relative = 'ok-wuthering-waves/src/actual_dirty_code.py'
             self.assertEqual(hashlib.sha256(b'current uncommitted content').hexdigest(),
                              manifest['files'][relative]['sha256'])

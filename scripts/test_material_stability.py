@@ -16,6 +16,8 @@ from contextlib import contextmanager
 ROOT = Path(__file__).resolve().parents[1]
 FRAMEWORK = ROOT.parent / 'ok-script'
 MODULES = (
+    'TestCombatProtection',
+    'TestCombatStateRepair', 'TestCombatDiagnostics', 'TestHealthyHudGuard', 'TestMaterialBossGuard',
     'TestCombatCadence', 'TestMaterialWorkflow', 'TestMaterialSettlement',
     'TestMaterialRunSafety', 'TestTeamMaterialPlan', 'TestTeamMaterialScanTask',
     'TestRewardOpening', 'TestDomainProgress', 'TestMaterialBossHealing',
@@ -32,13 +34,15 @@ MODULES = (
     'TestMenuPendingInspection', 'TestRewardResultObservation',
     'TestTeamCombatAdaptation', 'TestBossLiberationRetry', 'TestEchoCooldownReading',
     'TestXuanlingEchoReadiness',
-    'TestMaterialPlanRefresh', 'TestCultivationAvatarCache',
+    'TestMaterialPlanRefresh', 'TestCultivationAvatarCache', 'TestCultivationNameReplay',
+    'TestNamedCrossTeamMaterials',
+    'TestMaterialTileVision', 'TestNamedMaterialRefresh',
     'TestOriginalCombatEntry', 'TestSharedMaterialPlanner',
     'TestDesktopEnvironment', 'TestMaterialTestIsolation',
     'TestMaterialAuthorization', 'TestSharedMaterialInventory',
     'TestMaterialQueueSnapshot', 'TestMaterialActivityRestart',
-    'TestDesktopPreflight', 'TestDesktopUserState', 'TestDesktopClaimReconciliation',
-    'TestDesktopPanel',
+    'TestDesktopPreflight', 'TestWorldIconRecognition', 'TestDesktopUserState', 'TestDesktopClaimReconciliation',
+    'TestDesktopPanel', 'TestLiveRunLog',
 )
 
 

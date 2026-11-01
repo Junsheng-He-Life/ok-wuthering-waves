@@ -40,7 +40,8 @@ def main():
     parser.add_argument('--desktop-session', action='store_true', help='Use desktop settings and structured progress')
     parser.add_argument('--desktop-preflight', action='store_true', help='Require fresh party and level checks before entry')
     parser.add_argument('--desktop-preflight-mode', choices=('tacet', 'boss', 'materials'))
-    parser.add_argument('--desktop-experimental', action='store_true', help='Allow explicitly unverified combinations, never unknown levels')
+    parser.add_argument('--desktop-experimental', action='store_true', help='Allow explicitly unverified combinations; level checks remain required unless separately made advisory')
+    parser.add_argument('--desktop-level-advisory', action='store_true', help='Explicit experimental run: level is informational; retain party, health and resource checks')
     parser.add_argument('--menu-action', choices=('inspect', 'terminal', 'text', 'point', 'back', 'scroll'), default='inspect')
     parser.add_argument('--menu-expect', default='')
     parser.add_argument('--menu-point', nargs=2, type=float)
@@ -57,7 +58,11 @@ def main():
                         help='Explicit cumulative solvent cap including the shared ledger used count; defaults to saved setting or 0')
     parser.add_argument('--max-stamina', type=int, default=80)
     parser.add_argument('--target', default='')
+    parser.add_argument('--defer-material', action='append', default=[],
+                        help='Keep this exact material name pending without entering its route; repeatable')
     parser.add_argument('--targets', default='', help='Three cultivation targets, comma separated')
+    parser.add_argument('--target-teams', default='', help='Saved parties whose characters need materials, e.g. 1,2,3,4,5')
+    parser.add_argument('--combat-teams', default='', help='Only these saved parties may fight, e.g. 2,4,5')
     parser.add_argument('--stage', default='')
     parser.add_argument('--timeout', type=int, default=180)
     parser.add_argument('--continuous', action='store_true')
@@ -65,6 +70,17 @@ def main():
     parser.add_argument('--boss-context', action='store_true')
     parser.add_argument('--record-hud', action='store_true')
     args = parser.parse_args()
+    if args.desktop_level_advisory and not (args.desktop_experimental and args.desktop_preflight):
+        parser.error('level advisory requires experimental mode and desktop preflight')
+    if args.target_teams or args.combat_teams:
+        from src.task.PresetTeamUI import parse_team_numbers
+        try:
+            parse_team_numbers(args.target_teams)
+            parse_team_numbers(args.combat_teams)
+        except ValueError as exc:
+            parser.error(str(exc))
+        if args.phase not in ('plan', 'catalog') or args.targets:
+            parser.error('saved parties require plan/catalog without a targets override')
     if args.desktop_session:
         # The panel may request pause while imports are still starting. Do not let
         # the default SIGUSR action kill the process before control is ready.
@@ -78,7 +94,8 @@ def main():
         if not (0 <= args.max_stamina <= 4000 and 0 <= args.reserve_limit <= 240
                 and 0 <= args.solvent_limit <= 133):
             parser.error('echo resource limits must be finite and non-negative')
-    if not (1 <= args.timeout <= 600 or args.timeout == 0 and args.continuous and args.phase == 'plan'):
+    if not (1 <= args.timeout <= 600 or args.timeout == 0 and args.continuous and
+            (args.phase == 'plan' or args.phase == 'catalog' and args.target_teams)):
         parser.error('timeout must be 1..600; continuous plan also accepts 0')
     sys.argv = [sys.argv[0]]
     root = Path(__file__).resolve().parents[1]
@@ -144,6 +161,9 @@ def main():
     if args.phase == 'catalog':
         from src.task.TeamMaterialScanTask import TeamMaterialScanTask
         MaterialTrialTask = TeamMaterialScanTask
+    if args.target_teams:
+        from src.task.CrossTeamMaterialTask import CrossTeamMaterialTask
+        MaterialTrialTask = CrossTeamMaterialTask
     # No trigger tasks are instantiated, even if a saved config enables one.
     config['trigger_tasks'] = []
     config['onetime_tasks'] = []
@@ -151,6 +171,8 @@ def main():
     MaterialTrialTask.phase = 'loop' if args.phase == 'plan' else args.phase
     MaterialTrialTask.expected_target = args.target
     MaterialTrialTask.exact_stage = args.stage
+    from src.runtime.MacStartup import prepare_game_window
+    prepare_game_window(config)
     app = OK(config)
     task = None
     expired = threading.Event()
@@ -191,9 +213,14 @@ def main():
     execution_error = None
     try:
         task = app.get_onetime_task(MaterialTrialTask)
+        if args.target_teams:
+            task.target_teams = args.target_teams
+            task.combat_teams = args.combat_teams
+            task.cross_scan_only = args.phase == 'catalog'
         if args.desktop_preflight or args.phase == 'preflight':
             task.desktop_preflight_required = args.desktop_preflight
             task.desktop_allow_experimental = args.desktop_experimental
+            task.desktop_level_advisory = args.desktop_level_advisory
             task.desktop_preflight_mode = args.desktop_preflight_mode or (args.echo_mode if args.phase == 'echo' else 'tacet' if args.phase == 'preflight' else 'materials')
             if args.stage:
                 task.desktop_preflight_stage = args.stage
@@ -209,8 +236,9 @@ def main():
                                 '本次最多领奖': args.runs, '本次波片上限': args.max_stamina,
                                 '本次储备上限': args.reserve_limit,
                                 '本次溶剂上限': args.solvent_limit})
-        if args.phase in ('plan', 'claim'):
+        if args.phase in ('plan', 'claim') or args.target_teams:
             task.target_override = args.target.strip()
+            task.deferred_material_names = tuple(name.strip() for name in args.defer_material if name.strip())
             if args.desktop_session and args.phase == 'plan':
                 # The desktop explicitly promises the current whole party.
                 # Saved single-target settings must not silently change that scope.

@@ -18,6 +18,25 @@ def safe_world(task):
 def require_safe_world(task):
     task.next_frame()
     if not safe_world(task):
+        # Keep the failing executor frame and individual predicates together.
+        # A generic refusal alone cannot distinguish a menu from a HUD false
+        # positive; diagnostics must not start another capture stream.
+        import time
+        import cv2
+        frame = getattr(task, 'frame', None)
+        evidence = {'team_visible': bool(task.in_team()[0]),
+                    'world_icon': bool(task.find_world_earth_icon()),
+                    'in_realm': bool(task.in_realm()),
+                    'enemy_health_bar': bool(task.check_health_bar())}
+        if frame is not None and hasattr(frame, 'shape'):
+            folder = Path('logs/preflight-errors')
+            folder.mkdir(parents=True, exist_ok=True)
+            path = folder / f'{time.time_ns()}.png'
+            if cv2.imwrite(str(path), frame):
+                evidence['image'] = str(path)
+        result = getattr(task, 'result', None)
+        if isinstance(result, dict):
+            result.setdefault('unsafe_world_observations', []).append(evidence)
         raise RuntimeError('队伍检查需要安全的大世界画面；请先离开战斗或副本。')
 
 
@@ -79,11 +98,12 @@ def _collect_team_readiness(task):
         task.send_key(str(member['slot']), after_sleep=.8)
         if not task.wait_until(lambda: task.in_team()[0] and task.in_team()[1] == member['slot'] - 1,
                                time_out=3, raise_if_not_found=False):
-            if task.menu_text(r'选择复苏物品', timeout=.3):
+            from src.task.MaterialRunUI import REVIVAL_TITLE_REGION
+            if task.menu_text(r'选择复苏物品', REVIVAL_TITLE_REGION, timeout=.3):
                 task.send_key('esc', after_sleep=.5)
             raise RuntimeError(f"{member['slot']}号位无法切换，请先返回与治疗；未使用复苏物品。")
         values, raw = [], []
-        for _ in range(2):
+        for _ in range(0 if getattr(task, 'desktop_level_advisory', False) else 4):
             require_safe_world(task)
             if task.in_team()[1] != member['slot'] - 1:
                 raise RuntimeError('读取等级时当前角色改变，请重新检查队伍。')
@@ -92,9 +112,14 @@ def _collect_team_readiness(task):
             padded = [b.name for b in task.ocr(box=box, frame_processor=prepare_level_crop)]
             raw.append({'native': native, 'padded': padded})
             values.append(read_hud_level_variants((native, padded)))
+            # Retry transient missing labels, but never choose between
+            # conflicting levels or reuse a previous run's observation.
+            if len({value for value in values if value is not None}) > 1:
+                break
+            if len(values) >= 2 and values[-1] is not None and values[-1] == values[-2]:
+                member['level'] = values[-1]
+                break
             task.sleep(.2)
-        if values[0] is not None and values[0] == values[1]:
-            member['level'] = values[0]
         hp = task.read_current_hp()
         member['health'] = list(hp) if hp else None
         observations.append({'slot': member['slot'], 'level_text': raw})
@@ -129,6 +154,7 @@ def _collect_team_readiness(task):
         stage=getattr(task, 'desktop_preflight_stage', '') or getattr(task, 'exact_stage', '')
               or getattr(task, 'echo_stage_override', '') or task.config.get('声骸关卡', VERIFIED_STAGE),
         allow_experimental=getattr(task, 'desktop_allow_experimental', False),
+        level_advisory=getattr(task, 'desktop_level_advisory', False),
         minimum_level=getattr(task, 'desktop_minimum_level', MINIMUM_BETA_LEVEL))
     report.update(status='preflight_completed' if report['can_start'] else 'preflight_blocked',
                   checked_at=datetime.now().astimezone().isoformat(timespec='seconds'),

@@ -1,0 +1,52 @@
+[
+  {
+    "fixture": "world-icon-replay-0.png",
+    "crop_xyxy": [
+      0,
+      0,
+      110,
+      100
+    ],
+    "expected_world": true
+  },
+  {
+    "fixture": "world-icon-replay-1.png",
+    "crop_xyxy": [
+      0,
+      0,
+      110,
+      100
+    ],
+    "expected_world": true
+  },
+  {
+    "fixture": "world-icon-replay-2.png",
+    "crop_xyxy": [
+      0,
+      0,
+      110,
+      100
+    ],
+    "expected_world": false
+  },
+  {
+    "fixture": "world-icon-replay-3.png",
+    "crop_xyxy": [
+      0,
+      0,
+      110,
+      100
+    ],
+    "expected_world": false
+  },
+  {
+    "fixture": "world-icon-replay-4.png",
+    "crop_xyxy": [
+      0,
+      0,
+      110,
+      100
+    ],
+    "expected_world": false
+  }
+]

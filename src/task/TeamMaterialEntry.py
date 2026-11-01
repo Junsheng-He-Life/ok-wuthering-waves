@@ -18,7 +18,7 @@ class TeamMaterialEntry:
                 raise RuntimeError('补充储备前培养目标校验失败')
             self.reset_material_list_top()
             for attempt in range(3):
-                boxes = self.ocr(box=viewport(self, .25, .15, .99, .90), target_height=self.height*2)
+                boxes = self.ocr(box=viewport(self, .25, .15, .99, .90))
                 boxes = supplement_weekly_counts(self, boxes)
                 material_action(boxes, self.plan_job['kind'], self.width, self.height)
                 observed = [job for job in required_jobs(boxes, self.expected_target, self.width)
@@ -30,7 +30,9 @@ class TeamMaterialEntry:
                     self.next_frame()
             if len(observed) != 1 or not observed[0].get('material_counts'):
                 raise RuntimeError('补充体力前材料数量未确认')
-            if observed[0]['satisfied']:
+            shared_missing = any(r.get('raw_missing') is None or r.get('raw_missing', 0) > 0
+                                 for r in self.plan_job.get('shared_materials', []))
+            if observed[0]['satisfied'] and not shared_missing:
                 raise NoCurrentMaterialNeed('该材料当前持有量已达到培养需求')
             if self.plan_job['kind'] == '突破':
                 self.inspect_boss_material(boxes)
@@ -88,7 +90,7 @@ class TeamMaterialEntry:
             from src.task.CultivationTargetUI import material_action, viewport
             if not self.material_target_matches(self.expected_target):
                 raise RuntimeError('前往材料前培养目标校验失败')
-            boxes = self.ocr(box=viewport(self, .25, .15, .99, .90), target_height=self.height*2)
+            boxes = self.ocr(box=viewport(self, .25, .15, .99, .90))
             action = material_action(boxes, kind, self.width, self.height)
             self.click_box(action, after_sleep=1)
             self._plan_boss = kind in ('突破', '周本')

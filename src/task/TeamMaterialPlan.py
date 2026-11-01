@@ -2,7 +2,8 @@
 import hashlib
 import json
 
-TEAM_NAMES = {'yangyang_sp': '秧秧·玄翎', 'char_phrolova': '弗洛洛', 'char_suisui': '穗穗'}
+TEAM_NAMES = {'yangyang_sp': '秧秧·玄翎', 'char_phrolova': '弗洛洛', 'char_suisui': '穗穗',
+              'char_xin': '心'}
 ROLE_KINDS = (('武器/技能', 'ningsu', 40), ('突破', 'qiangdi', 60), ('周本', 'zhange', 60))
 SHARED_KINDS = ('角色经验', '武器经验', '贝币')
 

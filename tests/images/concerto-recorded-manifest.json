@@ -1,0 +1,189 @@
+[
+  {
+    "image": "concerto-chisa-full.png",
+    "crop_xywh": [
+      716,
+      971,
+      63,
+      63
+    ],
+    "color_index": 5,
+    "full": true
+  },
+  {
+    "image": "concerto-denia-full.png",
+    "crop_xywh": [
+      716,
+      971,
+      63,
+      63
+    ],
+    "color_index": 2,
+    "full": true
+  },
+  {
+    "image": "concerto-aemeath-partial.png",
+    "crop_xywh": [
+      716,
+      971,
+      63,
+      63
+    ],
+    "color_index": 2,
+    "full": false
+  },
+  {
+    "image": "concerto-chisa-partial.png",
+    "crop_xywh": [
+      716,
+      971,
+      63,
+      63
+    ],
+    "color_index": 5,
+    "full": false
+  },
+  {
+    "image": "concerto-denia-quarter.png",
+    "crop_xywh": [
+      716,
+      971,
+      63,
+      63
+    ],
+    "color_index": 2,
+    "full": false
+  },
+  {
+    "image": "concerto-aemeath-full.png",
+    "crop_xywh": [
+      716,
+      971,
+      63,
+      63
+    ],
+    "color_index": 2,
+    "full": true
+  },
+  {
+    "image": "concerto-chisa-full2.png",
+    "crop_xywh": [
+      716,
+      971,
+      63,
+      63
+    ],
+    "color_index": 5,
+    "full": true
+  },
+  {
+    "image": "concerto-denia-full2.png",
+    "crop_xywh": [
+      716,
+      971,
+      63,
+      63
+    ],
+    "color_index": 2,
+    "full": true
+  },
+  {
+    "image": "concerto-aemeath-half.png",
+    "crop_xywh": [
+      716,
+      971,
+      63,
+      63
+    ],
+    "color_index": 2,
+    "full": false
+  },
+  {
+    "image": "concerto-verina-partial.png",
+    "crop_xywh": [
+      716,
+      971,
+      63,
+      63
+    ],
+    "color_index": 0,
+    "full": false
+  },
+  {
+    "image": "concerto-verina-partial2.png",
+    "crop_xywh": [
+      716,
+      971,
+      63,
+      63
+    ],
+    "color_index": 0,
+    "full": false
+  },
+  {
+    "image": "concerto-changli-half.png",
+    "crop_xywh": [
+      716,
+      971,
+      63,
+      63
+    ],
+    "color_index": 2,
+    "full": false
+  },
+  {
+    "image": "concerto-suisui-partial.png",
+    "crop_xywh": [
+      716,
+      971,
+      63,
+      63
+    ],
+    "color_index": 3,
+    "full": false
+  },
+  {
+    "image": "concerto-phrolova-quarter.png",
+    "crop_xywh": [
+      716,
+      971,
+      63,
+      63
+    ],
+    "color_index": 5,
+    "full": false
+  },
+  {
+    "image": "concerto-suisui-full.png",
+    "crop_xywh": [
+      716,
+      971,
+      63,
+      63
+    ],
+    "color_index": 3,
+    "full": true
+  },
+  {
+    "image": "concerto-phrolova-full.png",
+    "crop_xywh": [
+      716,
+      971,
+      63,
+      63
+    ],
+    "color_index": 5,
+    "full": true
+  },
+  {
+    "image": "concerto-phrolova-partial.png",
+    "crop_xywh": [
+      716,
+      971,
+      63,
+      63
+    ],
+    "color_index": 5,
+    "full": false
+  }
+]

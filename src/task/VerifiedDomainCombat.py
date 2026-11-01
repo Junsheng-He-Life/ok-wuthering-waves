@@ -39,12 +39,25 @@ class VerifiedDomainCombat(NativeAttackCadence, MaterialBossGuard):
         self.log_info('combat entry confirmed by original OKWW detection')
 
     def material_victory_visible(self):
-        if self.find_treasure_icon():
+        if self.find_battle_reward_marker():
             return True
         if not getattr(self, '_plan_boss', False) or not self.in_team()[0] or self.check_health_bar():
             return False
         return any(re.fullmatch(r'领取奖励|ClaimRewards?', re.sub(r'\s+', '', b.name))
                    for b in self.ocr(0, .20, .28, .34))
+
+    def find_battle_reward_marker(self):
+        if not getattr(self, '_verified_battle', False):
+            return self.find_treasure_icon()
+        # Small previews keep the attack loop responsive. Positive candidates
+        # still need the original-resolution check; periodic full searches
+        # cover markers that become too small in the preview.
+        candidate = self.find_treasure_icon(target_height=360)
+        now = time.monotonic()
+        if candidate or now >= getattr(self, '_reward_full_probe_after', 0):
+            self._reward_full_probe_after = now + 2
+            return self.find_treasure_icon()
+        return None
 
     def record_rotation_hud(self, label):
         if not self.record_hud:
@@ -92,6 +105,11 @@ class VerifiedDomainCombat(NativeAttackCadence, MaterialBossGuard):
         return bool(restored)
 
     def fight_verified_domain(self):
+        from src.combat.CombatDiagnostics import combat_diagnostics
+        with combat_diagnostics(self):
+            return self._fight_verified_domain()
+
+    def _fight_verified_domain(self):
         self._settlement_health = (0, [])
         restarted = getattr(self, '_material_restarted', False)
         self._material_restarted = False
@@ -101,6 +119,7 @@ class VerifiedDomainCombat(NativeAttackCadence, MaterialBossGuard):
         for char in self.chars:
             if char is not None:
                 char.recovery_until = 0
+                char.recovery_needs_health = False
         unknown = [i + 1 for i, c in enumerate(self.chars)
                    if c is None or c.char_name == 'unknown' or c.confidence < .8]
         if unknown:
@@ -128,10 +147,13 @@ class VerifiedDomainCombat(NativeAttackCadence, MaterialBossGuard):
         self._verified_battle = True
         self._in_combat = False
         self._battle_end_probe = 0
+        self._reward_full_probe_after = 0
         self._battle_hud_probe = 0
         self._battle_snapshot_at = 0
         self._battle_end_seen = False
         self._boss_guard_at = 0
+        self._routine_numeric_due = 0
+        self._routine_health_sample = None
         self._boss_unreadable_hp = 0
         self._boss_target_missing_at = None
         self._boss_rotation_recoveries = 0
@@ -225,9 +247,14 @@ class VerifiedDomainCombat(NativeAttackCadence, MaterialBossGuard):
                 and time.monotonic() >= self._boss_heal_deadline):
             self.fail_battle('紧急治疗超时；返回信标')
         if time.monotonic() >= self._battle_deadline:
+            if self.material_victory_visible():
+                self._battle_end_seen = True
+                return False
+            if time.monotonic() >= self._battle_hard_deadline:
+                self.fail_battle('battle hard deadline reached; leave and recover')
             if (getattr(self, '_plan_boss', False) and self.in_team()[0]
                     and self.check_health_bar()):
-                self._battle_deadline = time.monotonic() + 30
+                self._battle_deadline = min(self._battle_hard_deadline, time.monotonic() + 30)
                 self.log_info('Boss HP bar remains; continue guarded combat')
             elif not self.extend_domain_deadline():
                 self.fail_battle('battle timed out (no verified kill progress or hard limit)')

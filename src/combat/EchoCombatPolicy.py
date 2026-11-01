@@ -1,4 +1,4 @@
-"""Responsive decisions at safe action boundaries in verified echo fights."""
+"""Responsive skill and targeting checks for the existing echo workflow."""
 import time
 
 
@@ -45,7 +45,7 @@ class EchoCombatPolicy:
         if locked:
             self._boss_target_missing_at = None
         self.result.setdefault('target_rechecks', []).append({'locked': bool(locked)})
-        self.log_info(f'Echo lost-target recheck: locked={bool(locked)}')
+        self.log_info(f'Combat lost-target recheck: locked={bool(locked)}')
 
     def use_ready_combat_skill(self):
         """Interrupt only normal-attack chunks, never a skill's own nested checks.

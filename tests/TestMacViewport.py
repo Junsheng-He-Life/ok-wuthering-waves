@@ -11,6 +11,23 @@ from src.runtime.MacViewport import title_rows, opaque_game_frame, covers_displa
 
 
 class TestMacViewport(unittest.TestCase):
+    def test_opaque_fast_path_preserves_pixels_and_owns_its_buffer(self):
+        rng = np.random.default_rng(6)
+        frame = rng.integers(0, 256, (90, 160, 4), dtype=np.uint8)
+        frame[:, :, 3] = 254
+        with patch('src.runtime.MacViewport.cv2.resize', side_effect=AssertionError('redundant resize')):
+            actual = opaque_game_frame(frame)
+        np.testing.assert_array_equal(actual, frame[:, :, :3])
+        self.assertTrue(actual.flags.c_contiguous)
+        self.assertFalse(np.shares_memory(actual, frame))
+
+    def test_sparse_alpha_holes_keep_full_viewport_without_resize(self):
+        frame = np.full((100, 160, 4), 255, np.uint8)
+        frame[50, 80, 3] = 0
+        with patch('src.runtime.MacViewport.cv2.resize', side_effect=AssertionError('redundant resize')):
+            actual = opaque_game_frame(frame)
+        np.testing.assert_array_equal(actual, frame[:, :, :3])
+
     @unittest.skipUnless(sys.platform == 'darwin', 'macOS capture backend')
     def test_recognition_size_and_clicks_share_the_cropped_viewport(self):
         from src.runtime.MacViewport import install_mac_viewport

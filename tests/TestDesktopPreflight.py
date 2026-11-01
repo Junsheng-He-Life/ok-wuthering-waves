@@ -55,6 +55,19 @@ class TestDesktopPreflight(unittest.TestCase):
             self.assertFalse(evaluate_team_readiness(members(), world,
                                                     allow_experimental=True)['can_start'])
 
+    def test_explicit_level_advisory_preserves_health_identity_and_world_checks(self):
+        roster = members(level=None)
+        options = dict(allow_experimental=True, level_advisory=True)
+        self.assertTrue(evaluate_team_readiness(roster, 8, **options)['can_start'])
+        with self.assertRaises(ValueError):
+            evaluate_team_readiness(roster, 8, level_advisory=True)
+        self.assertFalse(evaluate_team_readiness(roster, None, **options)['can_start'])
+        roster[1]['health'] = [0, 10000]
+        self.assertFalse(evaluate_team_readiness(roster, 8, **options)['can_start'])
+        roster[1]['health'] = [10000, 10000]
+        roster[1]['confidence'] = .2
+        self.assertFalse(evaluate_team_readiness(roster, 8, **options)['can_start'])
+
     def test_other_world_requires_explicit_experimental_choice(self):
         self.assertFalse(evaluate_team_readiness(members(), 7)['can_start'])
         self.assertTrue(evaluate_team_readiness(members(), 7, allow_experimental=True)['can_start'])
@@ -131,6 +144,17 @@ class TestDesktopPreflight(unittest.TestCase):
         self.assertEqual(['1', '2', '3', 'esc', 'esc', '1'],
                          [call.args[0] for call in task.send_key.call_args_list])
 
+    def test_advisory_collection_checks_live_health_without_level_ocr(self):
+        task = self.task()
+        task.desktop_level_advisory = task.desktop_allow_experimental = True
+        with patch('src.task.DesktopPreflightTask._atomic_json'), \
+                patch('src.task.DesktopPreflightTask.observe_members', side_effect=lambda _: members(level=None)):
+            result = collect_team_readiness(task)
+        self.assertTrue(result['can_start'])
+        self.assertEqual('advisory', result['level_policy'])
+        self.assertEqual(3, task.read_current_hp.call_count)
+        self.assertFalse(any(c.kwargs.get('box') == 'level_crop' for c in task.ocr.call_args_list))
+
     def test_pending_consumption_prevents_all_inputs(self):
         task = self.task()
         task.assert_no_pending_refill.side_effect = RuntimeError('待核对消费')
@@ -182,6 +206,41 @@ class TestDesktopPreflight(unittest.TestCase):
         with patch('src.task.DesktopPreflightTask._atomic_json'), self.assertRaises(RuntimeError):
             require_desktop_preflight(task)
         self.assertFalse(task.result['preflight']['can_start'])
+
+    def test_missing_level_frame_retries_until_two_fresh_exact_labels(self):
+        task = self.task()
+        read = task.ocr.side_effect
+        counts = {}
+        def intermittent(*args, **kwargs):
+            if kwargs.get('box') == 'level_crop':
+                slot = task.in_team()[1]
+                counts[slot] = counts.get(slot, 0) + 1
+                if counts[slot] <= 2:
+                    return [SimpleNamespace(name='L.80')] if counts[slot] == 1 else []
+            return read(*args, **kwargs)
+        task.ocr.side_effect = intermittent
+        with patch('src.task.DesktopPreflightTask._atomic_json'), \
+                patch('src.task.DesktopPreflightTask.observe_members', side_effect=lambda _: members()):
+            result = collect_team_readiness(task)
+        self.assertTrue(result['can_start'])
+        self.assertEqual([80, 80, 80], [m['level'] for m in result['members']])
+        self.assertEqual({0: 6, 1: 6, 2: 6}, counts)
+
+    def test_missing_level_remains_unknown_after_bounded_retries(self):
+        task = self.task()
+        read = task.ocr.side_effect
+        count = [0]
+        def missing(*args, **kwargs):
+            if kwargs.get('box') == 'level_crop':
+                count[0] += 1
+                return [SimpleNamespace(name='L.80')]
+            return read(*args, **kwargs)
+        task.ocr.side_effect = missing
+        with patch('src.task.DesktopPreflightTask._atomic_json'), \
+                patch('src.task.DesktopPreflightTask.observe_members', side_effect=lambda _: members()):
+            result = collect_team_readiness(task)
+        self.assertFalse(result['can_start'])
+        self.assertEqual(24, count[0])
 
 
 if __name__ == '__main__':

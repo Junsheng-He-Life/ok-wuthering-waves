@@ -8,6 +8,8 @@
 
 ## 下载与开始
 
+源码分支已更新跨队材料计划、按名称与图标核对共享库存、战斗动作确认和健康保护，以及可回看的实时日志。实现、命令与验证边界见[当前材料轮刷逻辑](docs/material-combat-update-2026-11-01.md)。下面的 beta.1 下载附件保持原版；源码更新不代表所有队伍和 Boss 均已稳定。
+
 当前版本：**0.1.0-beta.1，可安装的源码内测包**。已完成独立依赖环境安装验证和离线回归；多机器实机验收仍未完成。
 
 **[下载 v0.1.0-beta.1](https://github.com/Junsheng-He-Life/ok-wuthering-waves/releases/tag/v0.1.0-beta.1)**，选择附件 **`ok-ww-macos-beta-0.1.0-beta.1.zip`**。该附件包含两个配套项目、安装入口和固定版本依赖清单。GitHub 自动生成的 `Source code` 压缩包不包含完整配套环境。

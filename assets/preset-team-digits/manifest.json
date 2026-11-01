@@ -1,0 +1,28 @@
+{
+  "verified_labels": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+  ],
+  "frame_size": [
+    1920,
+    1080
+  ],
+  "crop_x": [
+    50,
+    116
+  ],
+  "crop_y": [
+    166,
+    301,
+    436,
+    571,
+    706,
+    841
+  ],
+  "crop_height": 48,
+  "use": "navigation candidate only; numbered title and three live HUD identities must still match"
+}

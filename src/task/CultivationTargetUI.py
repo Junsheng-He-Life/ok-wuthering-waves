@@ -37,7 +37,8 @@ def select_owned_target(task, desired):
         raise RuntimeError('培养目标列表未打开；前台恢复与三次确认重试后仍失败')
     preview = viewport(task, .69, .08, .94, .26)
     def name_matches():
-        readings = task.ocr(box=preview, target_height=task.height * 3)
+        from src.task.MaterialImageOCR import read_enlarged_region
+        readings = read_enlarged_region(task, preview)
         names = [normalize(b.name.replace('当期', '')) for b in readings]
         task._cultivation_preview_names = names
         task.log_info(f'cultivation preview: desired={desired!r}; observed={names!r}')
@@ -74,6 +75,14 @@ def select_owned_target(task, desired):
                 remember_avatar(task, desired, card, page)
                 found = True
                 break
+            # A cross-party scan may visit several requested portraits while
+            # locating its first target. Remember only a unique fresh preview
+            # name; later selection still verifies the target card normally.
+            visible = set(getattr(task, '_cultivation_preview_names', []))
+            peers = [name for name in getattr(task, 'requested_material_targets', [])
+                     if normalize(name) in visible]
+            if len(peers) == 1:
+                remember_avatar(task, peers[0], card, page)
         if not found:
             scroll_roster(task)
     if not found:

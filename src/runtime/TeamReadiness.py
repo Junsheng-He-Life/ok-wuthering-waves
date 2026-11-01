@@ -42,12 +42,15 @@ def read_world_level(rows):
 
 
 def evaluate_team_readiness(members, world_level, *, mode='tacet', stage=VERIFIED_STAGE,
-                            allow_experimental=False, minimum_level=MINIMUM_BETA_LEVEL):
+                            allow_experimental=False, minimum_level=MINIMUM_BETA_LEVEL, level_advisory=False):
     """Return eligibility for this beta; levels do not establish equipment quality."""
     if type(minimum_level) is not int or not MINIMUM_BETA_LEVEL <= minimum_level <= 90:
         raise ValueError('内测最低等级须为80至90；这不是游戏通用战力标准')
     members = [dict(member) for member in members]
     issues, warnings = [], ['武器、声骸与技能练度尚未自动核对；通过基础检查不保证通关。']
+    if level_advisory and not allow_experimental:
+        raise ValueError('等级仅提示需要显式实验性试运行')
+    level_issues = warnings if level_advisory else issues
     identities = [m.get('character') for m in members]
     trusted = len(members) == 3 and len(set(identities)) == 3
     for member in members:
@@ -65,9 +68,9 @@ def evaluate_team_readiness(members, world_level, *, mode='tacet', stage=VERIFIE
         level = member.get('level')
         if type(level) is not int or not 1 <= level <= 90:
             member['level'] = None
-            issues.append(f'{label}的等级未确认。')
+            level_issues.append(f'{label}的等级未确认。')
         elif level < minimum_level:
-            issues.append(f'{label}为{level}级，低于本内测版{minimum_level}级门槛，请换队或先培养。')
+            level_issues.append(f'{label}为{level}级，低于本内测版{minimum_level}级参考值。')
         hp = member.get('health')
         if (not isinstance(hp, (list, tuple)) or len(hp) != 2
                 or any(type(value) is not int for value in hp)
@@ -87,5 +90,6 @@ def evaluate_team_readiness(members, world_level, *, mode='tacet', stage=VERIFIE
     return {'members': members, 'world_level': world_level, 'identity_verified': bool(trusted),
             'can_start': not issues, 'support_level': support_level, 'issues': issues,
             'warnings': warnings, 'minimum_level': minimum_level,
+            'level_policy': 'advisory' if level_advisory else 'required',
             'policy_note': '80级为当前内测版本的保守门槛，不是游戏通用战力规则。',
             'equipment_verified': False, 'mode': mode, 'stage': stage}

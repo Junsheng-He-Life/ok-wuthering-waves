@@ -7,6 +7,8 @@ from src.task.MaterialRefillUI import MaterialRefillUI
 from src.task.MaterialRewardUI import MaterialRewardUI
 from src.task.MaterialEntryUI import MaterialEntryUI
 
+REVIVAL_TITLE_REGION = (.15, .14, .65, .28)
+
 
 class MaterialRunUI(MaterialEntryUI, MaterialRefillUI, MaterialRewardUI, MaterialSettlement):
     def return_to_world(self):
@@ -14,6 +16,12 @@ class MaterialRunUI(MaterialEntryUI, MaterialRefillUI, MaterialRewardUI, Materia
         for _ in range(5):
             if self.in_team_and_world():
                 return
+            # The embedded guide is a game overlay; Escape does not close it.
+            # Its two unique headings identify the layout before using its X.
+            if (self.menu_text(r'角色攻略', (0, .1, .3, .25), timeout=.3)
+                    and self.menu_text(r'浏览器打开.*', (.7, 0, .95, .12), timeout=.3)):
+                self.click(self.width * .925, self.height * .04, after_sleep=1)
+                continue
             detail = self.menu_text(r'点击空白区域关闭', (.30,.85,.72,.96), timeout=.3)
             if detail:
                 self.click(self.width*.70,self.height*.92,after_sleep=.4)
@@ -32,6 +40,8 @@ class MaterialRunUI(MaterialEntryUI, MaterialRefillUI, MaterialRewardUI, Materia
             known = known or self.menu_text(r'素材获取|材料获取|终端|Terminal', (0, 0, .2, .15), timeout=.5)
             known = known or self.menu_text(r'定序诸理之律', (0, 0, .23, .15), timeout=.5)
             known = known or self.menu_text(r'静心座', (.68, 0, .95, .15), timeout=.5)
+            known = known or (self.menu_text(r'自定义标记', (.68, 0, 1, .12), timeout=.3)
+                              and self.menu_text(r'选择标记', (.68, .12, 1, .20), timeout=.3))
             known = known or self.menu_text(
                 r'单人挑战|开启挑战', (.70, .85, 1, 1), timeout=.5)
             if not known:
@@ -78,7 +88,16 @@ class MaterialRunUI(MaterialEntryUI, MaterialRefillUI, MaterialRewardUI, Materia
         self._hp_observation_frame = frame.copy() if frame is not None else None
         readings = self.ocr(box=box, threshold=.85, frame=self._hp_observation_frame,
                             frame_processor=self.pad_hp_text)
+        alternate_scale = False
+        if not readings and self._hp_observation_frame is not None:
+            # Enlargement can merge HUD outlines into the digits. Retry the
+            # SAME captured crop at a smaller scale, never a different actor's
+            # next frame. This costs one extra OCR only after a missed read.
+            readings = self.ocr(box=box, threshold=.85, frame=self._hp_observation_frame,
+                                frame_processor=self.pad_hp_text_small)
+            alternate_scale = True
         self._hp_observation = {'monotonic': time.monotonic(),
+                                'alternate_scale': alternate_scale,
                                 'raw': [item.name for item in readings], 'parsed': None,
                                 'capture_sequence': getattr(getattr(getattr(self, '_executor', None), 'method', None), '_delivered_frame_sequence', None),
                                 'crop': {key: getattr(box, key, None) for key in ('x', 'y', 'width', 'height')}}
@@ -144,6 +163,13 @@ class MaterialRunUI(MaterialEntryUI, MaterialRefillUI, MaterialRewardUI, Materia
         return None
 
     @staticmethod
+    def pad_hp_text_small(image):
+        scale = max(1, 30 / image.shape[0])
+        image = cv2.resize(image, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+        return cv2.copyMakeBorder(image, 25, 25, 30, 30,
+                                  cv2.BORDER_CONSTANT, value=(245, 245, 245))
+
+    @staticmethod
     def pad_hp_text(image):
         # Framework target_height only downsamples; explicitly enlarge the
         # 14–20 px HUD text before detection. No coordinate result is used.
@@ -198,9 +224,9 @@ class MaterialRunUI(MaterialEntryUI, MaterialRefillUI, MaterialRewardUI, Materia
                 # A dead member can open an item revival overlay. Dismiss only
                 # that known overlay, then use the beacon instead of repeatedly
                 # trying to switch to a member who cannot take the field.
-                if self.menu_text(r'选择复苏物品', timeout=.5):
+                if self.menu_text(r'选择复苏物品', REVIVAL_TITLE_REGION, timeout=.5):
                     self.send_key('esc', after_sleep=.5)
-                    if self.menu_text(r'选择复苏物品', timeout=.5):
+                    if self.menu_text(r'选择复苏物品', REVIVAL_TITLE_REGION, timeout=.5):
                         raise RuntimeError('复苏窗口未关闭；不使用复苏物品')
                 if not self.in_team_and_world():
                     raise RuntimeError(f'healing slot switch not verified: {key}; world HUD missing')
@@ -289,9 +315,11 @@ class MaterialRunUI(MaterialEntryUI, MaterialRefillUI, MaterialRewardUI, Materia
         self._verified_battle = self._in_combat = False
         # Revival overlays hide the party HUD used by in_realm(). Dismiss
         # the verified overlay before checking domain state, without using items.
-        if self.menu_text(r'选择复苏物品', timeout=.5):
+        # Full-screen detection can split this title into incomplete words.
+        # The bounded title crop preserves exact matching without guessing.
+        if self.menu_text(r'选择复苏物品', REVIVAL_TITLE_REGION, timeout=.5):
             self.send_key('esc', after_sleep=.7)
-            if self.menu_text(r'选择复苏物品', timeout=.5):
+            if self.menu_text(r'选择复苏物品', REVIVAL_TITLE_REGION, timeout=.5):
                 raise RuntimeError('复苏物品窗口未关闭；不点击物品确认')
         if self.menu_text(r'确认离开|ConfirmLeave', (.2, .2, .8, .75), timeout=.5):
             self.menu_click(r'确认|Confirm', (.5, .5, .8, .8))
@@ -312,6 +340,9 @@ class MaterialRunUI(MaterialEntryUI, MaterialRefillUI, MaterialRewardUI, Materia
             if not self.menu_text(r'确认离开|ConfirmLeave', (.2, .2, .8, .75)):
                 raise RuntimeError('leave-domain dialog not verified')
             self.menu_click(r'确认|Confirm', (.5, .5, .8, .8))
+        elif not self.find_world_earth_icon():
+            cv2.imwrite('logs/unknown-domain-exit.png', self.frame)
+            raise RuntimeError('副本退出状态未识别；未发出退出操作，不等待加载')
         # The party HUD can remain visible before the loading screen starts.
         # Require the overworld icon, rather than accepting that stale HUD.
         def overworld_verified():

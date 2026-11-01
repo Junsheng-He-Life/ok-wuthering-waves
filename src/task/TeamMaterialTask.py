@@ -117,7 +117,7 @@ class TeamMaterialTask(TeamMaterialEntry, SafeMaterialTask):
                 continue
             self.reset_material_list_top()
             for attempt in range(3):
-                boxes = self.ocr(box=viewport(self, .25, .15, .99, .90), target_height=self.height*3)
+                boxes = self.ocr(box=viewport(self, .25, .15, .99, .90))
                 boxes = supplement_weekly_counts(self, boxes)
                 observed = required_jobs(boxes, name, self.width)
                 if not any(j['kind'] == '周本' and not j['material_counts'] for j in observed):
@@ -157,6 +157,10 @@ class TeamMaterialTask(TeamMaterialEntry, SafeMaterialTask):
             raise RuntimeError('本轮角色头像未确认：' + '、'.join(sorted(failed)))
         merged = [j for j in jobs if j['target'] not in targets] + refreshed
         return apply_shared_material_plan(merged)
+
+    def refresh_after_claim(self, jobs, names):
+        """Legacy unnamed queues still require a full shared-bag observation."""
+        return self.scan_required_jobs(names)
 
     def write_progress(self):
         self.state_path.parent.mkdir(parents=True, exist_ok=True)
@@ -406,11 +410,10 @@ class TeamMaterialTask(TeamMaterialEntry, SafeMaterialTask):
             raise RuntimeError('本次队伍未识别；禁止沿用上次队伍，保留材料检查点')
         from src.task.TeamMaterialTargets import resolve_material_targets
         target = str(self.target_override or self.config.get(self.SINGLE_TARGET_CONFIG, '')).strip()
-        names = resolve_material_targets(self.chars, self.config.get(self.TARGET_NAMES_CONFIG, ''), target)
+        names = self.resolve_plan_targets(target)
         roster = [str(c.char_name) for c in self.chars]
         self.info_set('已识别队伍', '、'.join(roster))
-        self.info_set('培养目标对应', f'当前队伍为 {target} 刷材料' if target else
-                      '；'.join(f'{i + 1}号位 {roster[i]} → {names[i]}' for i in range(3)))
+        self.info_set('培养目标对应', '、'.join(names))
         # A checkpoint protects unsettled spending; it is not live inventory.
         # Between launches the player may change party, weapon or cultivation
         # goals, or spend shared materials on any character, not just the last
@@ -433,6 +436,16 @@ class TeamMaterialTask(TeamMaterialEntry, SafeMaterialTask):
                                                    configured_solvent_total(self.config)))
         self.config['每批连续挑战场数'] = 1
         reports = []
+        # Keep failures across productive rounds. A successful different
+        # material must not re-enable a route whose recovery was exhausted.
+        failed_materials = {}
+        def failure_key(job):
+            names = tuple(sorted(job.get('material_names') or []))
+            from src.task.MaterialIdentity import named_job_key
+            return (job.get('kind'), names) if names else named_job_key(job)
+        deferred_names = set(getattr(self, 'deferred_material_names', ()))
+        deferred_materials = [job for job in jobs
+                              if deferred_names.intersection(job.get('material_names') or [])]
         consecutive_failures = 0
         failure = None
         available_done = False
@@ -453,13 +466,23 @@ class TeamMaterialTask(TeamMaterialEntry, SafeMaterialTask):
                     self._activity_job_paused_seconds = 0.0
                     self._activity_job_pause_started = None
                     self._activity_claim_job_seconds = 0
-                    self.info_set('当前培养材料', f"{job['target']} / {job['kind']}")
+                    self.info_set('当前培养材料', f"{job['target']} / " + '、'.join(job.get('material_names') or [job['kind']]))
                     self.info_set('当前持有/需求', ' · '.join(
                         f'{owned}/{needed}' for owned, needed in job.get('material_counts', [])) or '材料数量未识别')
                     self.update_activity()
                     if job.get('satisfied'):
                         self.complete_job(index)
                         reports.append({'status': 'materials_sufficient', 'job': job})
+                        continue
+                    if failure_key(job) in failed_materials:
+                        reports.append({'status': 'deferred_failed_material', 'job': job,
+                                        'reason': failed_materials[failure_key(job)]['reason']})
+                        self.log_info(f"材料本轮已失败并恢复，保留待办：{job.get('material_names') or job['target']}")
+                        continue
+                    if deferred_names.intersection(job.get('material_names') or []):
+                        reports.append({'status': 'deferred_material_policy', 'job': job,
+                                        'reason': '本次按材料名称暂缓，缺口保留'})
+                        self.log_info(f"本次暂缓材料：{job.get('material_names')}")
                         continue
                     if (job.get('deferred_reason') or
                             (job['kind'] == '周本' and job['target'] not in ('心', '卜灵'))):
@@ -476,6 +499,7 @@ class TeamMaterialTask(TeamMaterialEntry, SafeMaterialTask):
                     if not self.shared_budget.can_claim():
                         break
                     self.plan_job = job
+                    self.verify_plan_party()
                     self.expected_target = job['target']
                     self.exact_stage = job['route']['fallback_stage_name']
                     self.info_set('队伍计划', f"{index + 1}/{len(jobs)} {job['target']} · {job['kind']}")
@@ -490,35 +514,43 @@ class TeamMaterialTask(TeamMaterialEntry, SafeMaterialTask):
                     except Exception:
                         reports.append(dict(self.result))
                         raise
+                    # Keep the verified encounter even if the subsequent bag
+                    # refresh fails. Its reward is already in the ledger.
+                    from copy import deepcopy
+                    reports.append(deepcopy(self.result))
                     if self.shared_budget.claimed > job_claims_before:
                         changed_targets.add(job['target'])
+                        self.set_workflow_stage('刷新库存', '领奖已入账；核对奖励相关材料')
                         self.return_to_world()
-                        # Every claim can change a bag shared by several
-                        # targets. Re-observe all requested targets before
-                        # comparing stock; old peers are not simultaneous data.
-                        fresh = self.scan_required_jobs(names)
+                        fresh = self.refresh_after_claim(jobs, names)
                         if any(r['kind'] == '目标待核对' for r in fresh):
                             raise RuntimeError('领奖后库存核对失败，不发布旧库存')
                         if {r['target'] for r in fresh} != set(names):
                             raise RuntimeError('领奖后材料扫描不完整，不发布旧库存')
-                        by_key = {(r['target'], r['kind'], r.get('repeat', 0)): r for r in fresh}
-                        for queued in jobs:
-                            observed = by_key.get((queued['target'], queued['kind'], queued.get('repeat', 0)))
+                        from src.task.MaterialIdentity import named_job_key, refresh_named_jobs
+                        by_key = {named_job_key(r): r for r in fresh}
+                        for queued in (jobs if not any(r.get('material_names') for r in fresh) else []):
+                            observed = by_key.get(named_job_key(queued))
                             if observed is not None:
                                 queued.clear()
                                 queued.update(observed)
                             else:
                                 queued.update(satisfied=True, completion_reason='培养页已无此需求')
+                        if any(r.get('material_names') for r in fresh):
+                            refresh_named_jobs(jobs, fresh)
                         from src.task.SharedMaterialPlanner import apply_shared_material_plan
                         apply_shared_material_plan(jobs)
                         self.progress['jobs'] = jobs
                         self.progress['observed_at'] = datetime.now().astimezone().isoformat(timespec='seconds')
                         self.write_progress()
-                    reports.append(dict(self.result))
                     if self.result['status'] == 'deferred_map_route':
                         continue
                     if self.result['status'] == 'job_failed_recovered':
                         self.record_recovered_failure(index, self.result)
+                        failed_materials[failure_key(job)] = {
+                            'material_names': list(job.get('material_names') or []),
+                            'target': job['target'], 'kind': job['kind'],
+                            'reason': self.result.get('error', ''), 'recovered': True}
                         consecutive_failures += 1
                         if consecutive_failures >= 3:
                             raise RuntimeError('连续三场失败，已恢复；停止无效轮刷并保留诊断')
@@ -532,13 +564,11 @@ class TeamMaterialTask(TeamMaterialEntry, SafeMaterialTask):
                     break
                 if self.shared_budget.claimed == claims_before:
                     blocked_statuses = {'deferred_map_route', 'deferred_unsupported',
+                                        'deferred_failed_material', 'deferred_material_policy', 'job_failed_recovered',
                                         'materials_sufficient', 'skipped_no_current_need'}
                     if all(r.get('status') in blocked_statuses for r in reports[round_report_start:]):
-                        available_done = True
+                        available_done = not (failed_materials or deferred_materials)
                         break
-                    if any(r.get('status') == 'job_failed_recovered' for r in reports[round_report_start:]):
-                        self.log_info('恢复已完成；继续重试未领奖的材料任务')
-                        continue
                     raise RuntimeError('本轮没有成功领奖，剩余任务失败或尚未适配；保留进度，避免无效无限重试')
                 # Refresh actual cultivation rows after each productive round.
                 # Keep the same budget and pending-claim protection across rounds.
@@ -548,6 +578,9 @@ class TeamMaterialTask(TeamMaterialEntry, SafeMaterialTask):
                 jobs = apply_shared_material_plan(jobs)
                 self.progress = {'plan_id': plan_fingerprint(jobs), 'next_job': 0,
                                  'claim_pending': False, 'jobs': jobs, 'completed_jobs': [],
+                                 'failed_jobs': {str(i): failed_materials[failure_key(j)]
+                                                 for i, j in enumerate(jobs)
+                                                 if failure_key(j) in failed_materials},
                                  'roster': roster, 'targets': names,
                                  'observed_at': datetime.now().astimezone().isoformat(timespec='seconds')}
                 self.write_progress()
@@ -560,10 +593,19 @@ class TeamMaterialTask(TeamMaterialEntry, SafeMaterialTask):
             self.result = {'status': ('available_materials_ready' if available_done else
                                       'plan_completed' if self.progress['next_job'] >= len(jobs) else 'plan_paused'),
                            'next_job': self.progress['next_job'], 'total_jobs': len(jobs),
-                           'jobs': reports, 'budget': asdict(self.shared_budget)}
+                           'jobs': reports, 'budget': asdict(self.shared_budget),
+                           'blocked_materials': list(failed_materials.values()),
+                           'deferred_material_names': sorted(deferred_names)}
             if preflight is not None:
                 self.result['preflight'] = preflight
             if failure:
                 self.result.update(status='stopped', error=failure)
             self.save_run_report()
             self.plan_job = self.shared_budget = None
+
+    def resolve_plan_targets(self, target):
+        from src.task.TeamMaterialTargets import resolve_material_targets
+        return resolve_material_targets(self.chars, self.config.get(self.TARGET_NAMES_CONFIG, ''), target)
+
+    def verify_plan_party(self):
+        """Cross-team plans override this immediately before each material entry."""

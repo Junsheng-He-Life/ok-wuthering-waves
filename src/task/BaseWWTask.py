@@ -424,7 +424,7 @@ class BaseWWTask(BaseTask):
             # More vertical movement needed (or equal)
         return "w" if delta_y > 0 else "s"
 
-    def find_treasure_icon(self):
+    def find_treasure_icon(self, target_height=720):
         from ok.feature.Box import Box
         # This marker moves in the 3D viewport; it is not a 16:9 HUD anchor.
         # box_of_screen would omit the rightmost 880 px at 3440x1440.
@@ -432,7 +432,7 @@ class BaseWWTask(BaseTask):
         viewport = Box(round(.03 * width), round(.1 * height),
                        round(.94 * width), round(.71 * height))
         return self.find_one('treasure_icon', box=viewport, threshold=0.8,
-                             target_height=720)
+                             target_height=target_height)
 
     def click(self, x=-1, y=-1, move_back=False, name=None, interval=-1, move=False, down_time=0.01, after_sleep=0,
               key="left"):
@@ -486,6 +486,13 @@ class BaseWWTask(BaseTask):
             # threshold. Use the observed 1920 icon rather than lowering it.
             earth = self.find_one('macos_world_earth_1920', threshold=.8,
                                   horizontal_variance=.005, vertical_variance=.005)
+        if not earth:
+            # The translucent HUD inherits scene colours. Match the same
+            # globe's outline at the same location and threshold when bright
+            # scenery changes its colour correlation; keep realm/party gates.
+            earth = self.find_one('macos_world_earth_1920', threshold=.8,
+                                  horizontal_variance=.005, vertical_variance=.005,
+                                  canny_lower=100, canny_higher=200)
         return earth
 
     def in_illusive_realm(self):
@@ -1442,7 +1449,9 @@ class BaseWWTask(BaseTask):
         """Read the display name of the selected cultivation target."""
         target_boxes = self.ocr(
             box=self.box_of_screen(*MATERIAL_TARGET_BOX),
-            threshold=0.2,
+            # A low-confidence glyph (心 was read as N at 0.56) must not
+            # suppress the enlarged name-line fallback below.
+            threshold=0.8,
         ) or []
         ignored = {
             self._normalize_material_text(text)
@@ -1461,10 +1470,9 @@ class BaseWWTask(BaseTask):
         if not target_parts:
             # A single small glyph such as 心 can be missed by text detection.
             # Read only the name line at higher resolution, excluding the avatar.
-            name_boxes = self.ocr(
-                box=self.box_of_screen(.142, .173, .302, .208),
-                target_height=self.height * 3, threshold=.8,
-            ) or []
+            from src.task.MaterialImageOCR import read_enlarged_region
+            name_boxes = read_enlarged_region(
+                self, self.box_of_screen(.142, .173, .302, .208)) or []
             target_parts = [box.name.strip() for box in name_boxes
                             if self._normalize_material_text(box.name) not in ignored]
         return ' '.join(dict.fromkeys(target_parts))

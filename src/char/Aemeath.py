@@ -150,15 +150,22 @@ class Aemeath(BaseChar):
             self.LIB2_GUARD_TIME_OUT,
             self.FAST_LIB2_GUARD_TIME_OUT,
         )
-        deadline = time.monotonic() + time_out
+        visit = (self.last_switch_in_time, getattr(self.task, 'combat_start', 0))
+        if getattr(self, '_lib2_guard_visit', None) != visit:
+            self._lib2_guard_visit = visit
+            self._lib2_guard_deadline = time.monotonic() + self.LIB2_GUARD_TIME_OUT
+        # A short scheduling slice may yield, but must not discard the pending
+        # second R. The independent wall deadline is never renewed by a yield.
+        deadline = min(time.monotonic() + time_out, self._lib2_guard_deadline)
+        self._lib2_guard_pending = True
         self.logger.info(f'Aemeath [do_perform] waiting for lib2 before switching {context_log}')
         
         while not self._lib2_cast_this_turn():
             if time.monotonic() >= deadline:
-                self.logger.warning(
-                    f'Aemeath [do_perform] lib2 guard timed out '
-                    f'({time_out:g}s) {context_log}, casting switch'
-                )
+                self._lib2_guard_pending = time.monotonic() < self._lib2_guard_deadline
+                self.logger.info('Aemeath second R: ' + (
+                    'yield slice; retain pending chain' if self._lib2_guard_pending
+                    else 'wall deadline reached; chain unconfirmed, release field'))
                 break
                 
             self.task.next_frame()
@@ -168,6 +175,7 @@ class Aemeath(BaseChar):
             # A visible second R is the purpose of this guard. Repeated heavy
             # prompts must not keep it behind an E/heavy branch that continues.
             if self.lib2_available() and self.lib():
+                self._lib2_guard_pending = False
                 self.logger.debug(f'Aemeath [do_perform] lib2 cast, integrity guard satisfied {context_log}')
                 break
             if self.cast_enhanced_e_if_ready():
@@ -183,6 +191,8 @@ class Aemeath(BaseChar):
                 continue
             self.click(after_sleep=0.01)
             self.task.next_frame()
+        if self._lib2_cast_this_turn():
+            self._lib2_guard_pending = False
 
     def _execute_lib1_or_fallback_guard(self) -> None:
         """
@@ -210,12 +220,12 @@ class Aemeath(BaseChar):
                     self._execute_lib2_guard(context_log="(after forced lib1)")
                     break
                 # A failed cast must not enter the second-liberation wait.
-                self.click(after_sleep=0.03)
+                self.filler_normal_attacks()
                 self.task.next_frame()
                 
             else:
                 if not self.handle_heavy():
-                    self.click(after_sleep=0.01)
+                    self.filler_normal_attacks()
                 self.task.next_frame()
 
         if not found_action:
@@ -271,8 +281,13 @@ class Aemeath(BaseChar):
     def do_perform(self):
         # A deferred switch can call perform again without leaving the field.
         # Echo's skill hook may also cast R during that deferred attack chunk.
-        if self._echo_liberation_enabled():
+        if self._echo_liberation_enabled() or getattr(self.task, '_verified_battle', False) is True:
             self._sync_echo_liberation_visit()
+            if getattr(self, '_lib2_guard_pending', False):
+                self._execute_lib2_guard(context_log='(resume pending second R)')
+                if not self._lib2_guard_pending:
+                    self.switch_next_char()
+                return
             if self._echo_rotation_started:
                 # Waiting for concerto must not restart the complete intro,
                 # heavy chain and liberation guards on the same field visit.
@@ -309,6 +324,8 @@ class Aemeath(BaseChar):
         # 处理回合末尾的技能链（lib1 -> lib2）的完整性约束
         self._process_end_of_turn_liberations()
 
+        if getattr(self, '_lib2_guard_pending', False):
+            return
         self.switch_next_char()
 
     def lib(self):
@@ -338,6 +355,8 @@ class Aemeath(BaseChar):
             self._echo_liberation_visit = visit
             self._lib1_cast_count = self._lib2_cast_count = 0
             self._echo_rotation_started = False
+            self._lib2_guard_pending = False
+            self._lib2_guard_visit = None
 
     def click_liberation(self, *args, **kwargs):
         if not self._echo_liberation_enabled():
@@ -381,7 +400,7 @@ class Aemeath(BaseChar):
             # Keep the basic string moving before the remaining visual/CD
             # checks. Those checks are useful but comparatively expensive on
             # macOS, and must not create a visible pause between attacks.
-            self.click(after_sleep=0.03)
+            self.filler_normal_attacks()
             if self.lib():
                 start = time.time()
                 self.should_wait = self.should_wait_for_lib2()
@@ -450,6 +469,13 @@ class Aemeath(BaseChar):
         for _ in range(self.OPENING_NORMAL_ATTACKS):
             self.check_combat()
             self.click(after_sleep=self.OPENING_NORMAL_ATTACK_INTERVAL)
+
+    def filler_normal_attacks(self):
+        """Keep a short basic string between skill checks, without a worker queue."""
+        burst = getattr(self.task, 'native_attack_string', None)
+        if callable(burst) and burst(3, .03):
+            return
+        self.click(after_sleep=.03)
 
     def post_heavy_normal_attack_burst(self, deadline=None):
         """Resume the basic string after a heavy instead of re-holding it."""
