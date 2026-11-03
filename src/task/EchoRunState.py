@@ -5,7 +5,6 @@ from pathlib import Path
 import time
 
 from src.task.MaterialActivity import MaterialActivity, _atomic_json
-from src.task.EchoClaimAudit import echo_claim_id, ledger_spending
 
 
 class EchoRunState:
@@ -58,34 +57,10 @@ class EchoRunState:
         # The guard is written before the claim click and removed only after
         # its result (or an explicit rejection) and ledger have been saved.
         if self._run_budget.claim_pending:
-            record = {
+            _atomic_json(self.echo_pending_path, {
                 'stage': self.exact_stage, 'mode': self.echo_mode,
-                'budget': asdict(self._run_budget),
-                'claim_observation': getattr(self, '_claim_observation_context', None)}
-            _atomic_json(self.echo_pending_path, record)
-        elif self.echo_pending_path.exists():
-            raw_pending = self.echo_pending_path.read_bytes()
-            pending = json.loads(raw_pending)
-            previous = pending.get('budget', {})
-            context = pending.get('claim_observation') or {}
-            before, after = getattr(self, '_last_claim_stamina', (None, None))
-            cost = self._run_budget.spent - previous.get('spent', self._run_budget.spent)
-            units = self._run_budget.claimed - previous.get('claimed', self._run_budget.claimed)
-            if (cost > 0 and units > 0 and context.get('stamina_before') == before
-                    and isinstance(after, int) and before - after in (cost, cost - 1)):
-                # This receipt is committed atomically with ledger counters. A
-                # restart after ledger save but before guard deletion can prove
-                # that the claim was already counted, rather than counting twice.
-                self._activity.data.setdefault('claim_transactions', {})[echo_claim_id(raw_pending)] = {
-                    'waveplates': cost, 'claims': units,
-                    'stamina_before': before, 'stamina_after': after}
+                'budget': asdict(self._run_budget)})
         self.update_activity()
-        if self._run_budget.claim_pending:
-            record['ledger_baseline'] = {
-                **ledger_spending(self._activity.data),
-                'ledger_revision': self._activity.data.get('ledger_revision', 0)}
-            record['ledger_cursor'] = self._echo_cursor.copy()
-            _atomic_json(self.echo_pending_path, record)
         self.save_echo_progress()
         if not self._run_budget.claim_pending:
             self.echo_pending_path.unlink(missing_ok=True)

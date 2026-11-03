@@ -132,15 +132,17 @@ class TestDesktopUserState(unittest.TestCase):
         self.write('logs/echo-claim-pending.json', {'stage': '玄幽东岳无音区',
                    'claim_observation': {'stamina_before': 140, 'expected_cost': 120},
                    'budget': {'claim_pending': True}, 'account': 'MyPrivateName'})
-        self.write('logs/echo-latest.json', {'status': 'stopped',
+        self.write('logs/desktop-runs/1.json', {'status': 'stopped',
                    'error': 'UID:123456789 /Users/privateuser/work/token.json email@example.com',
                    'inventory_text': ['MyPrivateName', '123456789'], 'token': 'hidden-secret'})
         (self.root / 'logs/private.log').write_text('Do not export raw logs')
         destination = self.root / 'diagnostics.zip'
         export_diagnostics(self.root, destination)
         with zipfile.ZipFile(destination) as archive:
-            self.assertEqual(4, len(archive.namelist()))
+            self.assertIn('report.json', archive.namelist())
+            self.assertIn('提交说明.txt', archive.namelist())
             text = '\n'.join(archive.read(name).decode() for name in archive.namelist())
+            self.assertIn('stopped', text)
         for private in ('123456789', 'privateuser', 'email@example.com', 'hidden-secret', 'MyPrivateName', 'Do not export raw logs'):
             self.assertNotIn(private, text)
         self.assertTrue((self.root / 'logs/echo-claim-pending.json').exists())

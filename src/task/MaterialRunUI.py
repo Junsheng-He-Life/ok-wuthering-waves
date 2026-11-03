@@ -83,55 +83,33 @@ class MaterialRunUI(MaterialEntryUI, MaterialRefillUI, MaterialRewardUI, Materia
                                 'capture_sequence': getattr(getattr(getattr(self, '_executor', None), 'method', None), '_delivered_frame_sequence', None),
                                 'crop': {key: getattr(box, key, None) for key in ('x', 'y', 'width', 'height')}}
         known_totals = getattr(self, '_known_hp_totals', set())
-        portrait_checked, active_bar = False, None
-
-        def portrait_ratio():
-            nonlocal portrait_checked, active_bar
-            if not portrait_checked:
-                portrait_checked = True
-                team_reader = getattr(self, 'in_team', None)
-                if self._hp_observation_frame is not None and callable(team_reader):
-                    from src.combat.PortraitHealth import portrait_health
-                    team, slot, *_ = team_reader()
-                    bars = portrait_health(self._hp_observation_frame)
-                    self._hp_observation.update(team_verified=team, slot_at_decision=slot,
-                                                portrait_ratios=bars)
-                    if team and 0 <= slot < len(bars):
-                        active_bar = bars[slot]
-            return active_bar
-
-        def repair_supported(current, total):
-            if not 0 <= current <= total or total <= 0:
-                return False
-            if total in known_totals:
-                return True
-            # Equal digits on both sides of a damaged separator alone are not
-            # enough: the current slot's bar in this same saved frame must agree.
-            bar = portrait_ratio()
-            return current == total and bar is not None and bar >= .98
-
         for item in readings:
             raw = re.sub(r'\s+', '', item.name)
             match = re.fullmatch(r'([0-9]{1,6})[/／|]([0-9]{3,6})[.．。]?', raw)
-            if match and len(match[2]) == 6 and int(match[2]) not in known_totals:
-                current, total = map(int, match.groups())
-                bar = portrait_ratio()
-                if total <= 0 or bar is None or abs(current / total - bar) > .05:
-                    # OCR can retain a slash and also prefix the denominator
-                    # with its mistaken "1"/"7". Do not learn that inflated max.
-                    suffix = int(match[2][1:])
-                    match = ((current, suffix) if match[2][0] in '17'
-                             and repair_supported(current, suffix) else None)
             if not match and raw.isdecimal() and 7 <= len(raw) <= 13:
                 # At this HUD size OCR can turn the slash into a 1 or 7.
-                # Require a known maximum or independently corroborated equal
-                # full-HP digits; never replace a low numerator with the max.
+                # Repair only when an earlier explicit reading verified the
+                # maximum HP; the boss guard separately checks portrait HP.
                 candidates = [(int(raw[:split]), int(raw[split + 1:]))
                               for split in range(1, min(7, len(raw) - 2))
                               if raw[split] in '17'
-                              and repair_supported(int(raw[:split]), int(raw[split + 1:]))]
+                              and int(raw[split + 1:]) in known_totals]
                 if len(candidates) == 1:
                     match = candidates[0]
+                elif not candidates and self._hp_observation_frame is not None:
+                    # A combat buff can change the maximum since the last
+                    # explicit reading. Accept this one otherwise-unknown
+                    # separator only for identical numbers AND a full bar
+                    # for the verified active slot in this exact frame.
+                    full = re.fullmatch(r'([1-9][0-9]{2,5})[17]\1', raw)
+                    if full:
+                        from src.combat.PortraitHealth import portrait_health
+                        team, slot, *_ = self.in_team()
+                        bars = portrait_health(self._hp_observation_frame)
+                        if (team and 0 <= slot < 3 and bars[slot] is not None
+                                and bars[slot] >= .98):
+                            match = (int(full[1]), int(full[1]))
+                            self._hp_observation['full_bar_separator_verified'] = True
             if match:
                 current, total = match if isinstance(match, tuple) else map(int, match.groups())
                 if 0 <= current <= total and total > 0:

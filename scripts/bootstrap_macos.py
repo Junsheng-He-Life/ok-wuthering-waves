@@ -87,6 +87,7 @@ def main(argv=None):
         run([python, '-m', 'pip', 'check'], cwd=root)
         env = dict(os.environ, PYTHONPATH=os.pathsep.join([str(root.parent / 'ok-script'), str(root)]))
         run([python, root / 'scripts/check_desktop_environment.py', '--root', root], cwd=root, env=env)
+        run([python, root / 'scripts/build_macos_launcher.py', '--output', root.parent / 'OK-WW 鸣潮助手.app'], cwd=root, env=env)
         print('安装完成。现在可以双击「启动 OK-WW.command」；首次启动再完成权限与账号设置。')
         return 0
     except (OSError, ValueError, KeyError, RuntimeError, subprocess.CalledProcessError) as exc:

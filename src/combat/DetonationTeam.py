@@ -34,7 +34,7 @@ class DetonationTeam:
             for offset in (1, 2):
                 name = ORDER[(ORDER.index(current_char.char_name) + offset) % 3]
                 candidate = next((c for c in candidates if c.char_name == name), None)
-                if candidate and time.monotonic() >= getattr(candidate, 'recovery_until', 0):
+                if candidate:
                     return candidate
             return None
         return super().preferred_switch_target(current_char, candidates, has_intro)
@@ -49,14 +49,6 @@ class DetonationTeam:
         # Lower recharge equipment can need more attacks. Bound a stalled or
         # unreadable ring so it cannot indefinitely exclude the healer.
         limit = 24 if char.char_name == 'char_chisa' else 20
-        policy = getattr(self, 'allow_opportunistic_skills', None)
-        if callable(policy) and policy() is True:
-            # Repeated Chisa callbacks do not represent fresh field entries.
-            # Once her support chain is spent, a stalled ring must not keep
-            # her exposed for the legacy 24-second buildup window.
-            limit = 12
-            if char.char_name == 'char_chisa':
-                limit = 6 if getattr(char, '_detonation_chain_done', False) else 8
         return started > 0 and time.time() - started < limit
 
     def use_sparse_con_ring_detection(self):

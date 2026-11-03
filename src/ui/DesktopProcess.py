@@ -50,6 +50,9 @@ class DesktopProcess(QObject):
         folder = self.root / 'logs' / 'desktop-runs'
         folder.mkdir(parents=True, exist_ok=True)
         self.log_path = folder / f'{time.time_ns()}.log'
+        self.stop_request_path = self.log_path.with_suffix('.stop')
+        if runner == 'ultrawide_trial.py':
+            arguments = [*arguments, '--stop-request', str(self.stop_request_path)]
         self.log = self.log_path.open('w', encoding='utf-8')
         env = QProcessEnvironment.systemEnvironment()
         env.insert('PYTHONPATH', os.pathsep.join((str(self.root.parent / 'ok-script'), str(self.root))))
@@ -70,6 +73,11 @@ class DesktopProcess(QObject):
             self.stopping = True
             self.changed.emit({'stage': '正在安全停止', 'detail': '释放按键并保存消费记录，请稍候。'})
             self._send_signal(signal.SIGINT)
+
+    def stop_after_current(self):
+        if self.running:
+            self.stop_request_path.write_text('finish current fight, exit and heal\n')
+            self.changed.emit({'detail':'已请求本场结束后停止；不会开始下一场。'})
 
     def _send_signal(self, sig):
         pid = int(self.process.processId())

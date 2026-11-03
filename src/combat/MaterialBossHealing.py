@@ -10,7 +10,7 @@ class BossHealRequested(Exception):
 
 
 class MaterialBossHealing(BossHealthReading, BattleEvidence):
-    HEALERS = ('char_suisui', 'char_chisa', 'char_verina', 'char_baizhi')
+    HEALERS = ('char_suisui', 'char_chisa', 'char_douling')
     def healthy_healing_replacement(self, injured_slot):
         now = time.monotonic()
         samples = getattr(self, '_boss_team_health', {})
@@ -32,6 +32,9 @@ class MaterialBossHealing(BossHealthReading, BattleEvidence):
             if not hasattr(self, '_boss_team_health'):
                 self._boss_team_health = {}
             self._boss_team_health[slot] = (time.monotonic(), hp)
+            if hp[0] >= .75 * hp[1]:
+                self.chars[slot].recovery_required = False
+                self.chars[slot].recovery_until = 0
         if getattr(self, '_boss_healing', False):
             if time.monotonic() >= self._boss_heal_deadline:
                 self.fail_battle('紧急治疗超时；返回信标')
@@ -139,30 +142,29 @@ class MaterialBossHealing(BossHealthReading, BattleEvidence):
                 replacement = self.verify_healing_replacement(request.slot)
                 injured.recovery_until = (float('inf') if request.hp[0] == 0
                                           else time.monotonic() + 30)
+                injured.recovery_required = True
                 event.update(status='critical_swap', resume_slot=replacement.index + 1)
                 self.log_info(f'Boss critical HP: continue with healthy ally: {event}')
                 return
             if injured is healer and healer.char_name == 'char_suisui':
                 replacement = self.verify_healing_replacement(request.slot)
                 event['replacement'] = replacement.index + 1
-                # Do not expose the wounded healer again just to measure a
-                # possible regeneration tick. Keep her off field and let the
-                # verified healthy ally finish its rotation; no heal is claimed.
-                injured.recovery_until = time.monotonic() + 30
-                event.update(status='self_rescue_deferred', resume_slot=replacement.index + 1)
-                self.log_info(f'Wounded Suisui remains off field: {event}')
-                return
+                # Swap out first; do not force a wounded healer to build her
+                # entire attack chain under pressure. Re-entry can consume an
+                # existing healing stack, but HP must prove that it did.
+                self.sleep(1)
             else:
                 self.healing_switch(healer)
                 event['action_issued'] = bool(healer.emergency_heal_actions())
                 if not event['action_issued']:
-                    if healer.char_name in self.HEALERS:
-                        # Healing resources may be empty after a recent rescue.
+                    if healer.char_name in ('char_chisa', 'char_douling'):
+                        # Her Liberation may be empty after a previous fight.
                         # Keep the wounded character off field while a verified
                         # healthy ally continues the encounter. The regular
                         # health guard still forces retreat below 20% HP.
                         replacement = self.verify_healing_replacement(request.slot)
                         injured.recovery_until = time.monotonic() + 30
+                        injured.recovery_required = True
                         event['status'] = 'deferred_to_healthy_ally'
                         event['resume_slot'] = replacement.index + 1
                         self.log_info(f'Boss healer rescue deferred: {event}')
@@ -188,6 +190,11 @@ class MaterialBossHealing(BossHealthReading, BattleEvidence):
                 self.fail_battle('原受伤角色回血未确认；返回信标')
             event['status'] = 'verified'
             event['positive_hp_readings'] = readings
+            if injured is healer and healer.char_name == 'char_suisui':
+                replacement = self.verify_healing_replacement(request.slot)
+                injured.recovery_until = time.monotonic() + 10
+                injured.recovery_required = True
+                event['resume_slot'] = replacement.index + 1
             self._boss_hp_samples = {}
             self.log_info(f'Boss healer rescue verified: {event}')
         except Exception:

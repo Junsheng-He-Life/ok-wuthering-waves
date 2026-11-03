@@ -1,0 +1,39 @@
+name: macOS beta public tests
+on:
+  pull_request:
+    paths: ['src/**', 'scripts/**', 'tests/**', 'profiles/**', 'requirements*', '.github/workflows/macos-beta-public.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  offline:
+    runs-on: macos-14
+    timeout-minutes: 25
+    env:
+      QT_QPA_PLATFORM: offscreen
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: ok-wuthering-waves
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Junsheng-He-Life/ok-script
+          ref: v0.1.0-beta.2
+          path: ok-script
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install locked runtime and test dependencies
+        working-directory: ok-wuthering-waves
+        run: |
+          python -m pip install --no-deps -r requirements-macos.lock.txt
+          python -m pip install -r requirements-dev.txt
+          python -m pip check
+      - name: Run public tests without a game
+        working-directory: ok-wuthering-waves
+        env:
+          PYTHONPATH: ../ok-script:.
+        run: python scripts/test_beta_public.py

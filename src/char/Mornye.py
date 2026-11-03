@@ -113,10 +113,14 @@ class Mornye(BaseChar):
 
     def cast_resonance_if_ready(self):
         """Use Mornye's ready E without entering the generic retry loop."""
-        if not self.resonance_available():
+        if time.monotonic() < getattr(self, '_e_request_after', 0) or not self.resonance_available():
             return False
         self.logger.info("Mornye resonance ready: press E immediately")
         self.send_resonance_key(post_sleep=0.12)
+        self._e_request_after = time.monotonic() + 2
+        self.task.next_frame()
+        if not self.has_cd('resonance'):
+            return False
         self.record_resonance_use()
         return True
 

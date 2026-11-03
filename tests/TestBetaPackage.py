@@ -86,7 +86,7 @@ class TestBetaPackage(unittest.TestCase):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text('current uncommitted content')
         framework.mkdir()
-        for relative in ('setup.py', 'VERSION', 'MANIFEST.in', 'README.md', 'ok/__init__.py'):
+        for relative in ('setup.py', 'VERSION', 'MANIFEST.in', 'README.md', 'ok/__init__.py', 'tests/test_macos_backend.py'):
             path = framework / relative
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text('framework source')

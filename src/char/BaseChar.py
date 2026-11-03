@@ -605,10 +605,11 @@ class BaseChar:
             metrics['last_outcome'] = 'checking'
 
         def report_retry(outcome):
-            if supervised_retry and outcome in ('retry_timeout', 'cast_unconfirmed'):
-                # After an unconfirmed press, leave a real attack window even
-                # if a noisy ready icon persists on the following frames.
-                self._liberation_retry_after = time.monotonic() + 2
+            if supervised_retry:
+                if outcome in ('retry_timeout', 'cast_unconfirmed'):
+                    self._liberation_retry_after = time.monotonic() + 2
+                elif outcome.startswith('confirmed'):
+                    self._liberation_retry_after = 0
             if metrics is not None:
                 elapsed = round(time.monotonic() - retry_started, 4)
                 metrics.update(last_outcome=outcome, last_elapsed_seconds=elapsed)
@@ -618,8 +619,8 @@ class BaseChar:
                 elif outcome == 'cooldown':
                     metrics['cooldown_skips'] = metrics.get('cooldown_skips', 0) + 1
 
-        if supervised_retry and retry_started < getattr(self, '_liberation_retry_after', 0):
-            report_retry('backoff')
+        if supervised_retry and time.monotonic() < getattr(self, '_liberation_retry_after', 0):
+            report_retry('retry_backoff')
             return False
         if bounded_retry and self.has_cd('liberation'):
             report_retry('cooldown')
@@ -896,6 +897,9 @@ class BaseChar:
             click_resonance_if_ready_and_return (bool, optional): 如果共鸣技能可用, 是否立即释放并返回。默认为 False。
             until_con_full (bool, optional): 是否持续攻击直到协奏值满。默认为 False。
         """
+        ready_skill = getattr(self.task, 'use_ready_combat_skill', None)
+        if callable(ready_skill) and ready_skill():
+            return
         burst = getattr(self.task, 'native_attack_string', None)
         if duration > 0 and not until_con_full and not click_resonance_if_ready_and_return and callable(burst):
             import math
@@ -904,9 +908,6 @@ class BaseChar:
                 return
         start = time.time()
         while time.time() - start < duration:
-            ready_skill = getattr(self.task, 'use_ready_combat_skill', None)
-            if callable(ready_skill) and ready_skill():
-                return
             if click_resonance_if_ready_and_return and self.resonance_available():
                 return self.click_resonance()
             if until_con_full and self.is_con_full():

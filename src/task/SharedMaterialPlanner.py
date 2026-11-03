@@ -18,102 +18,98 @@ FAMILIES = {
 }
 PRIMARY_FAMILY = {'心': '弦线', '卜灵': '涡流', '今汐': '海蚀嵌合体',
                   '爱弥斯': '偏振体', '达妮娅': '弦线', '千咲': '海蚀嵌合体'}
-SYNTHESIS_DEFERRALS = ('低级余量可能已足以合成', '三角色需求合并后', '本轮培养需求合并后',
-                      '本轮共用库存读数冲突')
 
 
-def _clear_synthesis_deferral(job):
-    job.pop('conversion_pending', None)
-    if str(job.get('deferred_reason', '')).startswith(SYNTHESIS_DEFERRALS):
-        job.pop('deferred_reason', None)
-
-
-def _material_names(job):
-    """Map only previously inspected rows; unknown characters remain unoptimized."""
-    counts = job.get('material_counts', [])
-    if not isinstance(counts, (list, tuple)) or not counts or any(
-                         not isinstance(pair, (list, tuple)) or len(pair) != 2
-                         or any(type(v) is not int or v < 0 for v in pair)
-                         for pair in counts):
-        return []
-    target, kind, repeat = job['target'], job['kind'], job.get('repeat', 0)
-    singles = {'突破': {'今汐': '哀歌声核', '卜灵': '群儡的秽冕'},
-               '周本': {'心': '演轮残蜕', '今汐': '岁时之角刃', '卜灵': '深洋的咒诅'}}
-    if kind in singles:
-        name = singles[kind].get(target)
-        return [name] if len(counts) == 1 and name else []
-    if kind != '武器/技能':
-        return []
-    family = None
-    if repeat == 0 and target in PRIMARY_FAMILY:
-        family = FAMILIES[PRIMARY_FAMILY[target]]
-    elif target == '心' and repeat == 1:
-        family = ['急板涡流']
-    elif repeat == {'心': 2, '今汐': 1, '卜灵': 1}.get(target):
-        family_name = {'心': '机傀枢芯', '今汐': '啸叫声核', '卜灵': '呓语声核'}[target]
-        family = FAMILIES[family_name]
-    return family[-len(counts):] if family and len(counts) <= len(family) else []
-
-
-def combined_plan(jobs, audit=None):
-    """Combine this scan's requirements and stock, never historical audit counts.
-
-    Callers must pass the complete current target scan. ``audit`` is retained
-    for compatibility with the old report caller, but cannot supply missing
-    grades, off-scope targets, or old cultivation goals. Disagreeing live stock
-    observations remain unresolved instead of selecting a preferred character.
-    """
-    items = []
+def combined_plan(jobs, audit):
+    items = [dict(r) for r in audit['items']]
+    updates = {}
     for job in jobs:
-        names = _material_names(job)
-        if not names:
+        for item in items:
+            if item.get('resource_kind') == job['kind'] and item['target'] == job['target']:
+                counts = job.get('material_counts', [])
+                tier = item.get('tier_from_end', 1)
+                if len(counts) >= tier:
+                    item['inventory'], item['required'] = counts[-tier]
+    for job in jobs:
+        counts = job.get('material_counts', [])
+        names = None
+        singles = {'突破': {'今汐': '哀歌声核', '卜灵': '群儡的秽冕'},
+                   '周本': {'心': '演轮残蜕', '今汐': '岁时之角刃', '卜灵': '深洋的咒诅'}}
+        if job['kind'] in singles and len(counts) == 1:
+            names = [singles[job['kind']].get(job['target'])]
+            if names[0] is None:
+                continue
+        elif job['kind'] != '武器/技能':
             continue
-        items.extend(dict(target=job['target'], item_name=name, inventory=owned, required=needed)
-                     for name, (owned, needed) in zip(names, job['material_counts']))
-    recipes = [(a, b, 3) for family in FAMILIES.values() for a, b in zip(family, family[1:])]
+        if job['kind'] == '武器/技能' and job.get('repeat',0) == 0 and job['target'] in PRIMARY_FAMILY:
+            family = FAMILIES[PRIMARY_FAMILY[job['target']]]
+            counts = job.get('material_counts', [])
+            if 0 < len(counts) <= len(family):
+                names = family[-len(counts):]
+        elif job['kind'] == '武器/技能' and job['target']=='心' and job.get('repeat')==1:
+            counts = job.get('material_counts', [])
+            if len(counts)==1:
+                names = ['急板涡流']
+        elif (job['kind'] == '武器/技能' and counts
+              and job.get('repeat') == {'心': 2, '今汐': 1, '卜灵': 1}.get(job['target'])):
+            family_name = {'心': '机傀枢芯', '今汐': '啸叫声核', '卜灵': '呓语声核'}.get(job['target'])
+            if family_name and len(counts) <= 4:
+                names = FAMILIES[family_name][-len(counts):]
+        if names:
+            for name, (owned, needed) in zip(names, counts):
+                baseline = [r for r in items if r['item_name'] == name and r['target'] == job['target']]
+                if baseline and all(r['required'] != needed for r in baseline):
+                    continue  # Reject truncated OCR denominators rather than shrinking the goal.
+                if name not in updates or job['target'] == '卜灵' or name != '急板涡流':
+                    updates[name] = owned
+                for r in items:
+                    if r['item_name']==name and r['target']==job['target']:
+                        r['required'] = needed
+    # Every scan observes the same bag: replace all copies of its observation,
+    # rather than adding per-role inventory balances together.
+    for r in items:
+        if r['item_name'] in updates:
+            r['inventory'] = updates[r['item_name']]
+    recipes = [(a,b,3) for f in FAMILIES.values() for a,b in zip(f,f[1:])]
     return summarize_shared_inventory(items, recipes)
 
 
 def apply_shared_material_plan(jobs):
+    audit_path = Path('logs/material-audit-latest.json')
     policy_path = Path('configs/macos-desktop/shared-material-policy.json')
-    if policy_path.exists():
-        try:
-            policy = json.loads(policy_path.read_text())
-        except (OSError, ValueError):
-            return jobs  # A damaged optional policy cannot enable an optimization.
-        if not isinstance(policy, dict) or not policy.get('enabled', False):
-            return jobs
-    # The old policy's completed_materials was a personal, undated annotation.
-    # Neither it nor an earlier audit can override a newly observed shortage.
-    summary = combined_plan(jobs)
+    if not audit_path.exists() or not policy_path.exists():
+        return jobs
+    policy = json.loads(policy_path.read_text())
+    if not policy.get('enabled'):
+        return jobs
+    completed = set(policy.get('completed_materials', []))
+    for job in jobs:
+        boss_item = {'今汐': '哀歌声核', '卜灵': '群儡的秽冕'}.get(job['target'])
+        if job['kind'] == '突破' and boss_item in completed:
+            job['satisfied'] = True
+            job['completion_reason'] = '用户确认培养需求消失，已刷完'
+            job.pop('deferred_reason', None)
+    summary = combined_plan(jobs, json.loads(audit_path.read_text()))
+    for row in summary:
+        if row['item_name'] in completed:
+            row['completed'] = True
+            row['missing_after_synthesis'] = 0
     by_name = {r['item_name']: r for r in summary}
     for job in jobs:
-        if job['kind'] != '武器/技能' or job.get('repeat', 0) != 0:
+        if job['kind']!='武器/技能':
             continue
-        names = _material_names(job)
-        if not names:
+        if job['target']=='心' and job.get('repeat')==1:
+            job['deferred_reason'] = '急板涡流为心与卜灵共用，由卜灵涡流副本统一补缺'
+            job['shared_materials'] = ['急板涡流']
+        if job.get('repeat',0)!=0 or job['target'] not in PRIMARY_FAMILY:
             continue
-        entries = [by_name[name] for name in names]
+        names = FAMILIES[PRIMARY_FAMILY[job['target']]]
+        entries = [by_name[n] for n in names if n in by_name]
         job['shared_materials'] = entries
-        job['combined_synthesis_missing'] = {r['item_name']: r['missing_after_synthesis'] for r in entries}
-        if any(r['missing_after_synthesis'] is None for r in entries):
-            job['satisfied'] = False
-            job.pop('conversion_pending', None)
-            job['deferred_reason'] = '本轮共用库存读数冲突，需重新扫描后再规划'
-        elif all(r['missing_after_synthesis'] == 0 for r in entries):
-            if all(r['raw_missing'] == 0 for r in entries):
-                job['satisfied'] = True
-                _clear_synthesis_deferral(job)
-                continue
-            job['satisfied'] = False
-            job['deferred_reason'] = '本轮培养需求合并后，可见共用库存足以合成；等待核验并合成'
+        job['combined_synthesis_missing'] = {r['item_name']:r['missing_after_synthesis'] for r in entries}
+        if entries and all(r['missing_after_synthesis']==0 for r in entries):
+            job['deferred_reason'] = '三角色需求合并后，现有共用库存足以合成；停止消耗波片，等待合成'
             job['conversion_pending'] = True
-        else:
-            job['satisfied'] = False
-            # A per-character synthesis estimate cannot reserve the same bag
-            # for several characters. Keep unrelated route/error deferrals.
-            _clear_synthesis_deferral(job)
-    report = Path('logs/material-status/shared-plan-live.json')
-    report.parent.mkdir(parents=True, exist_ok=True)
-    report.write_text(json.dumps(summary, ensure_ascii=False, indent=2))
+    Path('logs/material-status/shared-plan-live.json').write_text(
+        json.dumps(summary,ensure_ascii=False,indent=2))
     return jobs

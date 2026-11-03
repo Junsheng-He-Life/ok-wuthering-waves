@@ -42,8 +42,8 @@ from src.char.Suisui import Suisui
 from src.char.Taoqi import Taoqi
 from src.char.Verina import Verina
 from src.char.Xiangliyao import Xiangliyao
-from src.char.Xin import Xin
 from src.char.Xigelika import Xigelika
+from src.char.Xin import Xin
 from src.char.Yinlin import Yinlin
 from src.char.YangYangSp import YangYangSp
 from src.char.Youhu import Youhu
@@ -94,8 +94,6 @@ _char_dict_raw = {
                          'ring_index': Elements.ICE},
     Labels.char_xiangliyao: {'cls': Xiangliyao, 'char_type': CharType.MAIN_DPS,
                              'ring_index': Elements.ELECTRIC},
-    Labels.char_xin: {'cls': Xin, 'char_type': CharType.MAIN_DPS,
-                      'ring_index': Elements.ELECTRIC},
     Labels.char_camellya: {'cls': Camellya, 'char_type': CharType.MAIN_DPS,
                            'ring_index': Elements.HAVOC},
     Labels.char_youhu: {'cls': Youhu, 'char_type': CharType.HEALER,
@@ -126,6 +124,7 @@ _char_dict_raw = {
     (Labels.char_moning, Labels.char_moning_new): {'cls': Mornye, 'char_type': CharType.HEALER,
                                                    'ring_index': Elements.FIRE},
     Labels.char_aemeath: {'cls': Aemeath, 'char_type': CharType.MAIN_DPS, 'ring_index': Elements.FIRE},
+    Labels.char_xin: {'cls': Xin, 'char_type': CharType.MAIN_DPS, 'ring_index': Elements.ELECTRIC},
     Labels.char_xigelika: {'cls': Xigelika, 'char_type': CharType.MAIN_DPS, 'ring_index': Elements.WIND},
     Labels.char_luhesi: {'cls': Luhesi, 'char_type': CharType.MAIN_DPS, 'ring_index': Elements.SPECTRO},
     Labels.char_hiyuki: {'cls': Hiyuki, 'char_type': CharType.MAIN_DPS, 'ring_index': Elements.ICE},
@@ -241,8 +240,7 @@ def get_char_by_pos(task, box, index, old_char):
     info = None
     name = "unknown"
     char = None
-    if (old_char and old_char.confidence > 0.92 and old_char.char_name in char_names
-            and task.trust_cached_character_hints()):
+    if old_char and old_char.confidence > 0.92 and old_char.char_name in char_names:
         if hinted_char := get_char_by_hint(
                 task, box, index, old_char.char_name, old_char=old_char):
             return hinted_char

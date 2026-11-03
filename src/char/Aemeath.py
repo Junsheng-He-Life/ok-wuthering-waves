@@ -146,41 +146,35 @@ class Aemeath(BaseChar):
         进入等待循环以确保第二次解放（lib2）被释放。
         普通战斗保留 13 秒保护；材料本使用 5 秒快速预算。
         """
+        lib2_guard_start = time.time()
         time_out = self.rotation_timeout(
             self.LIB2_GUARD_TIME_OUT,
             self.FAST_LIB2_GUARD_TIME_OUT,
         )
-        deadline = time.monotonic() + time_out
         self.logger.info(f'Aemeath [do_perform] waiting for lib2 before switching {context_log}')
         
         while not self._lib2_cast_this_turn():
-            if time.monotonic() >= deadline:
+            if time.time() - lib2_guard_start > time_out:
                 self.logger.warning(
                     f'Aemeath [do_perform] lib2 guard timed out '
                     f'({time_out:g}s) {context_log}, casting switch'
                 )
                 break
                 
-            self.task.next_frame()
             self.check_combat()
-            if time.monotonic() >= deadline:
-                continue
-            # A visible second R is the purpose of this guard. Repeated heavy
-            # prompts must not keep it behind an E/heavy branch that continues.
-            if self.lib2_available() and self.lib():
-                self.logger.debug(f'Aemeath [do_perform] lib2 cast, integrity guard satisfied {context_log}')
-                break
             if self.cast_enhanced_e_if_ready():
                 self.task.next_frame()
                 continue
-            if time.monotonic() >= deadline:
-                continue
-            if self.handle_heavy(deadline=deadline):
+            if self.handle_heavy():
                 self.logger.debug(f'Aemeath [do_perform] handle_heavy triggered during lib2 guard {context_log}')
                 self.task.next_frame()
                 continue
-            if time.monotonic() >= deadline:
-                continue
+                
+            if self.lib2_available():
+                if self.lib():
+                    self.logger.debug(f'Aemeath [do_perform] lib2 cast, integrity guard satisfied {context_log}')
+                    break
+                    
             self.click(after_sleep=0.01)
             self.task.next_frame()
 
@@ -269,31 +263,14 @@ class Aemeath(BaseChar):
             self._execute_lib1_or_fallback_guard()
 
     def do_perform(self):
-        # A deferred switch can call perform again without leaving the field.
-        # Echo's skill hook may also cast R during that deferred attack chunk.
-        if self._echo_liberation_enabled():
-            self._sync_echo_liberation_visit()
-            if self._echo_rotation_started:
-                # Waiting for concerto must not restart the complete intro,
-                # heavy chain and liberation guards on the same field visit.
-                # This short filler retains native health/ready-skill hooks.
-                self.logger.info('Aemeath deferred switch: short attack segment only')
-                self.task.next_frame()
-                self.check_combat()
-                self.continues_normal_attack(.35)
-                self.check_combat()
-                self.switch_next_char()
-                return
-            self._echo_rotation_started = True
-        else:
-            self._lib1_cast_count = 0
-            self._lib2_cast_count = 0
-
         self.intro_time = -1
         self.should_wait = False
         team_rotation = getattr(self.task, 'detonation_team_active', None)
         if callable(team_rotation) and team_rotation() is True:
             self.click_echo(time_out=0)
+        # 重置本轮计数
+        self._lib1_cast_count = 0
+        self._lib2_cast_count = 0
         
         if self.has_intro:
             self.record_intro_liberation()
@@ -312,10 +289,6 @@ class Aemeath(BaseChar):
         self.switch_next_char()
 
     def lib(self):
-        if self._echo_liberation_enabled():
-            # Echo can also request R from a normal-attack chunk. Both entry
-            # points must consume the same lib1/lib2 state exactly once.
-            return self.click_liberation(wait_if_cd_ready=0)
         is_lib2 = self.lib2_available()
         if not is_lib2 and not self.can_cast_lib1():
             return False
@@ -324,35 +297,6 @@ class Aemeath(BaseChar):
         self.record_liberation(is_lib2)
         self.f_break()
 
-        if is_lib2:
-            self._execute_post_lib2_combo()
-        return True
-
-    def _echo_liberation_enabled(self):
-        policy = getattr(self.task, 'allow_opportunistic_skills', None)
-        return callable(policy) and policy() is True
-
-    def _sync_echo_liberation_visit(self):
-        visit = (self.last_switch_in_time, getattr(self.task, 'combat_start', 0))
-        if getattr(self, '_echo_liberation_visit', None) != visit:
-            self._echo_liberation_visit = visit
-            self._lib1_cast_count = self._lib2_cast_count = 0
-            self._echo_rotation_started = False
-
-    def click_liberation(self, *args, **kwargs):
-        if not self._echo_liberation_enabled():
-            return super().click_liberation(*args, **kwargs)
-        self._sync_echo_liberation_visit()
-        # Sample the second-stage icon before R changes it. A successful base
-        # cast includes cinematic/CD confirmation; failed probes change no state.
-        is_lib2 = self.lib2_available()
-        if not is_lib2 and not self.can_cast_lib1():
-            return False
-        if not super().click_liberation(*args, **kwargs):
-            return False
-        self.record_liberation(is_lib2)
-        self.logger.info(f'Aemeath Echo liberation confirmed: lib{2 if is_lib2 else 1}')
-        self.f_break()
         if is_lib2:
             self._execute_post_lib2_combo()
         return True
@@ -451,38 +395,14 @@ class Aemeath(BaseChar):
             self.check_combat()
             self.click(after_sleep=self.OPENING_NORMAL_ATTACK_INTERVAL)
 
-    def post_heavy_normal_attack_burst(self, deadline=None):
+    def post_heavy_normal_attack_burst(self):
         """Resume the basic string after a heavy instead of re-holding it."""
         self.logger.info(
             f'Aemeath heavy follow-up: '
             f'{self.POST_HEAVY_NORMAL_ATTACKS} normal attacks'
         )
-        if deadline is not None:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                return
-            self.sleep(min(self.POST_HEAVY_RECOVERY, remaining))
-        else:
-            self.sleep(self.POST_HEAVY_RECOVERY)
+        self.sleep(self.POST_HEAVY_RECOVERY)
         burst = getattr(self.task, 'native_attack_string', None)
-        if deadline is not None:
-            # The native cadence can spend time in health checks or a real
-            # cinematic. Re-enter it one press at a time so an expired guard
-            # never starts the remainder of a four-attack queue afterwards.
-            for _ in range(self.POST_HEAVY_NORMAL_ATTACKS):
-                if time.monotonic() >= deadline:
-                    return
-                self.check_combat()
-                if time.monotonic() >= deadline:
-                    return
-                if callable(burst) and burst(1, self.POST_HEAVY_NORMAL_ATTACK_INTERVAL):
-                    continue
-                self.click(after_sleep=min(
-                    self.POST_HEAVY_NORMAL_ATTACK_INTERVAL,
-                    max(0, deadline - time.monotonic()),
-                ))
-                self.task.next_frame()
-            return
         if callable(burst) and burst(self.POST_HEAVY_NORMAL_ATTACKS, self.POST_HEAVY_NORMAL_ATTACK_INTERVAL):
             return
         for _ in range(self.POST_HEAVY_NORMAL_ATTACKS):
@@ -491,31 +411,13 @@ class Aemeath(BaseChar):
                 after_sleep=self.POST_HEAVY_NORMAL_ATTACK_INTERVAL,
             )
 
-    def heavy_wait_highlight_down(self, deadline=None):
-        if deadline is not None and time.monotonic() >= deadline:
-            return False
-        self.task.held_attack_interrupted = False
-        try:
-            self.task.mouse_down()
-            if deadline is None:
-                ret = self.task.wait_until(
-                    lambda: not self.heavy_ready_state(),
-                    time_out=1.2,
-                )
-            else:
-                hold_deadline = min(deadline, time.monotonic() + 1.2)
-                ret = False
-                while time.monotonic() < hold_deadline:
-                    self.check_combat()
-                    if (getattr(self.task, 'held_attack_interrupted', False)
-                            or time.monotonic() >= hold_deadline):
-                        break
-                    if not self.heavy_ready_state():
-                        ret = True
-                        break
-                    self.task.next_frame()
-        finally:
-            self.task.mouse_up()
+    def heavy_wait_highlight_down(self):
+        self.task.mouse_down()
+        ret = self.task.wait_until(
+            lambda: not self.heavy_ready_state(),
+            time_out=1.2,
+        )
+        self.task.mouse_up()
         self.sleep(0.01)
         return ret
 
@@ -550,9 +452,7 @@ class Aemeath(BaseChar):
             return 'mecha'
         return ''
 
-    def handle_heavy(self, deadline=None):
-        if deadline is not None and time.monotonic() >= deadline:
-            return False
+    def handle_heavy(self):
         if (
                 self.time_elapsed_accounting_for_freeze(
                     self.last_heavy_attempt
@@ -562,14 +462,11 @@ class Aemeath(BaseChar):
         heavy_state = self.heavy_ready_state()
         if not heavy_state:
             return False
-        if deadline is not None and time.monotonic() >= deadline:
-            return False
         self.logger.info(
             f'Aemeath {heavy_state} heavy ready: hold normal attack'
         )
         prepares_lib2 = self.preparing_lib2()
-        state_cleared = (self.heavy_wait_highlight_down() if deadline is None
-                         else self.heavy_wait_highlight_down(deadline=deadline))
+        state_cleared = self.heavy_wait_highlight_down()
         self.last_heavy_attempt = time.time()
         if state_cleared:
             if prepares_lib2:
@@ -579,11 +476,7 @@ class Aemeath(BaseChar):
                 'Aemeath heavy signal stayed highlighted after release; '
                 'continue with the basic string instead of holding again'
             )
-        if not getattr(self.task, 'held_attack_interrupted', False):
-            if deadline is None:
-                self.post_heavy_normal_attack_burst()
-            else:
-                self.post_heavy_normal_attack_burst(deadline=deadline)
+        self.post_heavy_normal_attack_burst()
         return True
     def get_switch_priority(self, current_char=None, has_intro=False, target_low_con=False):
         if self.should_wait_for_lib2():

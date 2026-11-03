@@ -37,6 +37,8 @@ class DesktopTrialMonitor:
             if not getattr(self.task, 'paused', False):
                 self.task.pause()
             self.app.task_executor.pause()
+            if getattr(self, '_paused_at', None) is None:
+                self._paused_at = time.monotonic()
             self.task.held_attack_interrupted = True
             print('DESKTOP_CONTROL', json.dumps({'paused': True, 'control_ready': True}), flush=True)
         except Exception:
@@ -49,6 +51,14 @@ class DesktopTrialMonitor:
     def resume(self, *_):
         if not self.app.exit_event.is_set() and getattr(self.app.task_executor, 'current_task', None) is self.task:
             try:
+                paused_at = getattr(self, '_paused_at', None)
+                if paused_at is not None:
+                    duration = time.monotonic() - paused_at
+                    for key in ('_battle_deadline','_battle_hard_deadline','_boss_heal_deadline','_boss_acquire_deadline'):
+                        value = getattr(self.task, key, None)
+                        if isinstance(value,(int,float)):
+                            setattr(self.task,key,value+duration)
+                    self._paused_at = None
                 self.task.unpause()
                 print('DESKTOP_CONTROL', json.dumps({'paused': False, 'control_ready': True}), flush=True)
             except Exception:
@@ -70,6 +80,11 @@ class DesktopTrialMonitor:
         previous = time.monotonic()
         last_published = previous - 1
         while not self.done.wait(.2):
+            stop_request = getattr(self, 'stop_request', None)
+            if stop_request and stop_request.exists():
+                self.task.stop_after_current = True
+            if self.stop_on_capture_error():
+                return
             requested, self.control_request = self.control_request, None
             if requested:
                 (self.pause if requested == 'pause' else self.resume)()
@@ -79,6 +94,7 @@ class DesktopTrialMonitor:
                 self.active_seconds += now - previous
             previous = now
             data['active_seconds'] = round(self.active_seconds)
+            data['stop_after_current'] = bool(getattr(self.task, 'stop_after_current', False))
             if now - last_published >= 1:
                 print('DESKTOP_PROGRESS', json.dumps(data, ensure_ascii=False, default=str), flush=True)
                 last_published = now
@@ -87,6 +103,18 @@ class DesktopTrialMonitor:
                 self.app.exit_event.set()
                 self.release(self.app)
                 return
+
+    def stop_on_capture_error(self):
+        capture = getattr(getattr(self.app, 'device_manager', None), 'capture_method', None)
+        error = getattr(capture, 'geometry_error', None)
+        if not error:
+            return False
+        print('DESKTOP_CONTROL', json.dumps({'error': error}, ensure_ascii=False), flush=True)
+        if isinstance(getattr(self.task, 'result', None), dict):
+            self.task.result.update(status='stopped',error=str(error),diagnostic_code='CAPTURE_GEOMETRY_CHANGED')
+        self.app.exit_event.set()
+        self.release(self.app)
+        return True
 
     def close(self):
         self.done.set()

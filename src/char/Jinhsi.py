@@ -1,140 +1,114 @@
+"""Build Jinhsi's attack chain with normals and positively recognized E forms."""
 import time
-
 from src.char.BaseChar import BaseChar, SwitchPriority
+from src.char.JinhsiHud import enhanced_e_stage
 
 
 class Jinhsi(BaseChar):
-    ECHO_INTRO_RETRY_SECONDS = 2.5
-
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.last_free_intro = 0  # free intro every 25 sec
         self.has_free_intro = False
-        self.incarnation = False
-        self.incarnation_cd = False
-        self.last_fly_e_time = 0
-
-    def do_perform(self):
-        if self.incarnation:
-            self.handle_incarnation()
-            return self.switch_next_char()
-        elif self.has_intro or self.incarnation_cd:
-            self.handle_intro()
-            return self.switch_next_char()
-        self.click_echo()
-        return self.switch_next_char()
 
     def reset_state(self):
         super().reset_state()
-        self.incarnation = False
         self.has_free_intro = False
-        self.incarnation_cd = False
+        self._last_e_request = None
+
+    def allows_opportunistic_skill(self, name):
+        # R is independent. E form checks and Q's opening animation belong
+        # to this module; neither Q nor R requires a successful E chain.
+        return name == 'liberation'
 
     def get_switch_priority(self, current_char=None, has_intro=False, target_low_con=False):
-        if has_intro or self.incarnation or self.incarnation_cd:
-            self.logger.info(
-                f'switch priority max because has_intro {has_intro} incarnation {self.incarnation} incarnation_cd '
-                f'{self.incarnation_cd}')
-            return SwitchPriority.MUST
-        return SwitchPriority.NO
+        return SwitchPriority.MUST if has_intro else SwitchPriority.NO
 
     def switch_next_char(self, **args):
         super().switch_next_char(free_intro=self.has_free_intro, target_low_con=True)
         self.has_free_intro = False
 
-    def _echo_rotation_enabled(self):
-        policy = getattr(self.task, 'allow_opportunistic_skills', None)
-        return callable(policy) and policy() is True
-
-    def handle_incarnation(self):
-        self.incarnation = False
-        self.logger.info(f'handle_incarnation click_resonance start')
-        start = time.time()
-        animation_start = 0
-        last_op = 'resonance'
-        responsive = self._echo_rotation_enabled()
-        self.task.in_liberation = not responsive
-        try:
-            while True:
-                if time.time() - start > 6:
-                    self.logger.info(f'handle incarnation too long')
-                    break
-                team_visible = self.task.in_team()[0]
-                if responsive:
-                    # E attempts with a visible HUD are still vulnerable to
-                    # damage. Only an actual cinematic suspends the HP guard.
-                    self.task.in_liberation = not team_visible
-                if team_visible:
-                    if responsive:
-                        self.check_combat()
-                    if last_op == 'resonance':
-                        self.task.click(interval=0.1)
-                        last_op = 'click'
-                    else:
-                        self.send_resonance_key()
-                        last_op = 'resonance'
-                    if animation_start != 0:
-                        self.logger.info(f'Jinhsi handle_incarnation done')
-                        break
-                else:
-                    if animation_start == 0:
-                        self.logger.info(f'Jinhsi handle_incarnation start animation')
-                        animation_start = time.time()
-                    self.task.in_liberation = True
-                self.check_combat()
-                self.task.next_frame()
-        finally:
-            if responsive:
-                self.task.in_liberation = False
-        self.task.in_liberation = False
-
-        if not self.click_echo():
-            self.task.click()
-
-        self.add_freeze_duration(animation_start)
-        # if self.task.debug:
-        #     self.task.screenshot(f'handle_incarnation click_resonance end {time.time() - start}')
-        self.logger.info(f'handle_incarnation  click_resonance end {time.time() - start}')
-
-    def handle_intro(self):
-        self.logger.info(f'handle_intro start')
-        start = time.time()
-        responsive = self._echo_rotation_enabled()
-        while True:
-            elapsed = time.time() - start
-            if responsive and elapsed > self.ECHO_INTRO_RETRY_SECONDS:
-                # A missing cooldown is not evidence that E entered its next
-                # stage. Yield to ready R/attacks without inventing that state.
-                self.logger.info('Jinhsi E stage unconfirmed; resume R and normal attacks')
-                self.incarnation_cd = False
-                self.click_liberation(send_click=True, wait_if_cd_ready=0)
-                self.continues_normal_attack(.3)
-                return
-            if self.has_cd('resonance'):
-                if 0.3 < elapsed < 1.5:
-                    self.incarnation_cd = True
-                    # self.task.screenshot('incarnation_cd')
-                    if not self.click_echo():
-                        self.click()
-                    return
-                elif elapsed > 1.5:
-                    # self.task.screenshot('incarnation_finished')
-                    break
-            else:
-                self.send_resonance_key(interval=0.1)
+    def do_perform(self):
+        self.wait_intro(time_out=1.2, click=False)
+        if self.has_intro:
+            remaining = 1.1 - (time.time() - self.last_switch_in_time)
+            if remaining > 0:
+                self.sleep(remaining)
+        self.task.next_frame()
+        self.check_combat()
+        if self.echo_available() and self.click_echo(time_out=0):
+            # Jue retains the HUD during its animation. Input availability
+            # cannot be inferred from a lit E while that animation plays.
+            self.sleep(1.8)
             self.task.next_frame()
             self.check_combat()
+        self.perform_attack_chain()
+        self.switch_next_char()
 
-        self.last_fly_e_time = start
-        if self.click_liberation(send_click=True):
-            self.continues_normal_attack(0.3)
-        else:
-            self.continues_normal_attack(1.4)
-        # self.task.screenshot(f'handle_intro end {time.time() - start}')
-        self.logger.info(f'handle_intro end {time.time() - start}')
-        self.incarnation = True
-        self.incarnation_cd = False
-
-    def wait_resonance(self):
-        while not self.resonance_available():
-            self.send_resonance_key(interval=0.1)
+    def perform_attack_chain(self):
+        started = time.monotonic()
+        event = {'status': 'building_with_normals', 'e_requests': [], 'confirmed': []}
+        self.task.result.setdefault('jinhsi_attack_chains', []).append(event)
+        candidate, samples = None, 0
+        requested = {}
+        pending = None
+        try:
+            while time.monotonic() - started < 14:
+                self.task.next_frame()
+                self.check_combat()
+                stage = enhanced_e_stage(self.task.frame)
+                # Native input may take several capture frames to affect the
+                # HUD. Keep observing the single request instead of repeating
+                # E or requiring the immediately following frame to change.
+                if pending and ((stage is not None and stage != pending[0])
+                                or self.has_cd('resonance')):
+                    event['confirmed'].append(pending[0])
+                    self.logger.info(f'Jinhsi enhanced E form consumed: {pending[0]}')
+                    if pending[0] == 'finisher':
+                        self.has_free_intro = True
+                        event['status'] = 'finisher_confirmed'
+                        self.task.use_ready_combat_skill()
+                        return
+                    pending = None
+                elif pending and time.monotonic() - pending[1] >= 1:
+                    # One spaced retry is allowed only while the exact same
+                    # enhanced glyph remains visible. No ordinary-ready E
+                    # fallback and no unbounded key-repeat loop.
+                    pending = None
+                samples = samples + 1 if stage and stage == candidate else 1
+                candidate = stage
+                if stage and samples == 1:
+                    # Confirm the ready form on the next capture before
+                    # starting normals/R. A long R cinematic must not consume
+                    # the five-second enhanced-entry opportunity unchecked.
+                    self.task.next_frame()
+                    self.check_combat()
+                    second = enhanced_e_stage(self.task.frame)
+                    samples = 2 if second == stage else 1
+                    stage = candidate = second
+                # Neither ordinary E availability nor elapsed attack time
+                # establishes an enhanced skill. Require its own icon twice.
+                previous = getattr(self, '_last_e_request', None)
+                blocked = previous and previous[0] == stage and time.monotonic()-previous[1] < 1
+                if stage and samples >= 2 and requested.get(stage,0) < 2 and not blocked and not pending and not self.has_cd('resonance'):
+                    requested[stage] = requested.get(stage,0) + 1
+                    self._last_e_request = (stage, time.monotonic())
+                    event['e_requests'].append(stage)
+                    record = getattr(self.task, 'record_rotation_hud', None)
+                    if callable(record):
+                        record(f'jinhsi-{stage}-before-e')
+                    # Give the E startup a short settling interval before a
+                    # normal click can cancel it. This is an input interval,
+                    # not a requirement that E succeed before R/Q are allowed.
+                    self.send_resonance_key(down_time=.12, post_sleep=.25)
+                    self.task.next_frame()
+                    self.check_combat()
+                    if callable(record):
+                        record(f'jinhsi-{stage}-after-e')
+                    pending = (stage,time.monotonic())
+                elif previous and stage and previous[0] != stage:
+                    self._last_e_request = None
+                self.continues_normal_attack(.35)
+            event['status'] = 'enhanced_chain_unconfirmed'
+            self.logger.info('Jinhsi normal-attack window ended without verified finisher')
+        finally:
+            event['seconds'] = round(time.monotonic() - started, 2)
+            self.task.mouse_up()
