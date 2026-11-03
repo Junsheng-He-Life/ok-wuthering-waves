@@ -59,6 +59,15 @@ class TestReleaseWorkflow(unittest.TestCase):
             start.assert_not_called()
             self.assertFalse(list(Path(directory).rglob('*')))
 
+    def test_copy_error_summary_excludes_unstructured_inventory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            window=DesktopWindow(directory,preview=True);self.addCleanup(window.close)
+            window.detail.setPlainText(json.dumps({'status':'stopped','error':'example',
+                                                  'inventory_text':['PRIVATE_NAME']}))
+            window.copy_summary()
+            self.assertIn('example',self.qt.clipboard().text())
+            self.assertNotIn('PRIVATE_NAME',self.qt.clipboard().text())
+
     def test_material_entry_delegates_to_label_verified_start(self):
         task=SafeMaterialTask.__new__(SafeMaterialTask)
         with patch('src.task.TeamMaterialEntry.TeamMaterialEntry.start_material_team_verified',return_value=True) as start:

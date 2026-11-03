@@ -198,7 +198,10 @@ class DesktopWindow(QMainWindow):
 
     def progress(self,value):
         self.pause.setEnabled(self.controller.control_ready)
-        self.status.setText(('已暂停' if value.get('paused') else value.get('stage','运行中'))+' · '+value.get('detail',''))
+        stopping_after = bool(value.get('stop_after_current'))
+        if stopping_after:self.after.setEnabled(False)
+        self.status.setText(('已暂停' if value.get('paused') else value.get('stage','运行中'))+
+                            ('（本场后停止）' if stopping_after else '')+' · '+value.get('detail',''))
         budget=value.get('budget')
         if budget:self.spend.setText(f"本轮：{budget.get('spent',0)}波片 / {budget.get('claimed',0)}份 / {budget.get('solvents_used',0)}溶剂 / {budget.get('reserve_used',0)}储备")
 
@@ -247,7 +250,12 @@ class DesktopWindow(QMainWindow):
 
     def copy_summary(self):
         from src.runtime.DesktopRecovery import redact_text
-        QApplication.clipboard().setText(redact_text(self.detail.toPlainText())+'\n'+redact_text(self.report_note.toPlainText()))
+        try:
+            row=json.loads(self.detail.toPlainText())
+            text=json.dumps({key:row[key] for key in ('status','stage','phase','error','failure_stage','budget') if key in row},
+                            ensure_ascii=False,indent=2)
+        except ValueError:text='尚未选择运行记录。'
+        QApplication.clipboard().setText(redact_text(text)+'\n'+redact_text(self.report_note.toPlainText()))
 
     def initialize_account(self):
         if not self.guard():return

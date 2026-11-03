@@ -77,7 +77,7 @@ class DesktopProcess(QObject):
     def stop_after_current(self):
         if self.running:
             self.stop_request_path.write_text('finish current fight, exit and heal\n')
-            self.changed.emit({'detail':'已请求本场结束后停止；不会开始下一场。'})
+            self.changed.emit({'detail':'已请求本场结束后停止；不会开始下一场。','stop_after_current':True})
 
     def _send_signal(self, sig):
         pid = int(self.process.processId())
