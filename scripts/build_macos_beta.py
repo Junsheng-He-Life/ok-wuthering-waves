@@ -38,8 +38,8 @@ APP_FILES = (
     'tests/TestBetaPackage.py', 'tests/TestDesktopEnvironment.py', 'tests/TestMacSession.py',
     'tests/TestMacViewport.py', 'tests/TestMacWindowSelection.py', 'tests/TestUltrawide.py',
 )
-APP_TREES = {'src': {'.py'}, 'icons': {'.png', '.ico', '.svg'}, 'i18n': {'.mo'}}
-FRAMEWORK_SUFFIXES = {'.py', '.swift', '.qm', '.qss', '.qrc', '.svg', '.png', '.ico'}
+APP_TREES = {'src': {'.py'}, 'icons': {'.png', '.ico', '.svg'}, 'i18n': {'.mo', '.po'}}
+FRAMEWORK_SUFFIXES = {'.py', '.swift', '.qm', '.ts', '.qss', '.qrc', '.svg', '.png', '.ico'}
 BLOCKED_PARTS = {'.git', '.venv', '.venv313', '__pycache__', 'configs', 'logs', 'data', 'runs'}
 
 

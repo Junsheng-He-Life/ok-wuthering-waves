@@ -152,7 +152,7 @@ class Aemeath(BaseChar):
             self.FAST_LIB2_GUARD_TIME_OUT,
         )
         self.logger.info(f'Aemeath [do_perform] waiting for lib2 before switching {context_log}')
-        
+
         while not self._lib2_cast_this_turn():
             if time.time() - lib2_guard_start > time_out:
                 self.logger.warning(
@@ -160,7 +160,7 @@ class Aemeath(BaseChar):
                     f'({time_out:g}s) {context_log}, casting switch'
                 )
                 break
-                
+
             self.check_combat()
             if self.cast_enhanced_e_if_ready():
                 self.task.next_frame()
@@ -169,12 +169,12 @@ class Aemeath(BaseChar):
                 self.logger.debug(f'Aemeath [do_perform] handle_heavy triggered during lib2 guard {context_log}')
                 self.task.next_frame()
                 continue
-                
+
             if self.lib2_available():
                 if self.lib():
                     self.logger.debug(f'Aemeath [do_perform] lib2 cast, integrity guard satisfied {context_log}')
                     break
-                    
+
             self.click(after_sleep=0.01)
             self.task.next_frame()
 
@@ -206,7 +206,7 @@ class Aemeath(BaseChar):
                 # A failed cast must not enter the second-liberation wait.
                 self.click(after_sleep=0.03)
                 self.task.next_frame()
-                
+
             else:
                 if not self.handle_heavy():
                     self.click(after_sleep=0.01)
@@ -257,7 +257,7 @@ class Aemeath(BaseChar):
         if self._lib1_cast_this_turn() and not self._lib2_cast_this_turn():
             # ── 分支A：本轮已释放 lib1 但未释放 lib2，必须等待并释放 lib2 ───────
             self._execute_lib2_guard(context_log="(initial lib1 cast)")
-            
+
         elif not self._lib1_cast_this_turn() and not self._lib2_cast_this_turn():
             # ── 分支B：本轮既未释放 lib1 也未释放 lib2，尝试 8 秒 fallback ──────
             self._execute_lib1_or_fallback_guard()
@@ -271,7 +271,7 @@ class Aemeath(BaseChar):
         # 重置本轮计数
         self._lib1_cast_count = 0
         self._lib2_cast_count = 0
-        
+
         if self.has_intro:
             self.record_intro_liberation()
             self.continues_normal_attack(1.2)
