@@ -28,6 +28,18 @@ def inspect_recovery(root):
             'message':'保留原结算，导出诊断，不要删除保护记录或重复领奖。' if items else '没有待核对消费。'}
 
 
+def sanitize_json(value, key=''):
+    """Redact values before encoding, preserving JSON numbers and digest fields."""
+    if key.casefold() in ('uid','account','account_id','token','secret','api_key','password'):
+        return '[REDACTED]'
+    if isinstance(value,dict):return {k:sanitize_json(v,str(k)) for k,v in value.items()}
+    if isinstance(value,list):return [sanitize_json(v) for v in value]
+    if isinstance(value,str):
+        if key.endswith('sha256') and re.fullmatch('[a-f0-9]{64}',value):return value
+        return redact_text(value)
+    return value
+
+
 def export_diagnostics(root, destination, note='', run_path=None):
     root = Path(root).resolve()
     folder = root/'logs/desktop-runs'
@@ -76,7 +88,7 @@ def export_diagnostics(root, destination, note='', run_path=None):
     destination = Path(destination)
     destination.parent.mkdir(parents=True,exist_ok=True)
     with zipfile.ZipFile(destination,'x',zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr('report.json',redact_text(json.dumps(data,ensure_ascii=False,indent=2)))
+        archive.writestr('report.json',json.dumps(sanitize_json(data),ensure_ascii=False,indent=2))
         for name,text in logs.items(): archive.writestr(name,redact_text(text))
         archive.writestr('提交说明.txt','在GitHub问题反馈中填写复现步骤、预期/实际结果和队伍，手动附上此ZIP。\n'
                           '不含截图、完整日志或账号配置；如需截图，请先遮住UID与账号名。\n'

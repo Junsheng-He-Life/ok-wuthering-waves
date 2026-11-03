@@ -249,13 +249,13 @@ class DesktopWindow(QMainWindow):
         except (OSError,ValueError) as error:self.message(str(error))
 
     def copy_summary(self):
-        from src.runtime.DesktopRecovery import redact_text
+        from src.runtime.DesktopRecovery import redact_text,sanitize_json
         try:
             row=json.loads(self.detail.toPlainText())
-            text=json.dumps({key:row[key] for key in ('status','stage','phase','error','failure_stage','budget') if key in row},
+            text=json.dumps(sanitize_json({key:row[key] for key in ('status','stage','phase','error','failure_stage','budget') if key in row}),
                             ensure_ascii=False,indent=2)
         except ValueError:text='尚未选择运行记录。'
-        QApplication.clipboard().setText(redact_text(text)+'\n'+redact_text(self.report_note.toPlainText()))
+        QApplication.clipboard().setText(text+'\n'+redact_text(self.report_note.toPlainText()))
 
     def initialize_account(self):
         if not self.guard():return

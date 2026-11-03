@@ -160,5 +160,15 @@ class TestReleaseWorkflow(unittest.TestCase):
             self.assertIn('Traceback',contents);self.assertIn('ValueError',contents)
             self.assertTrue((root/'logs/echo-claim-pending.json').exists())
 
+    def test_redacted_diagnostic_remains_valid_json_with_full_precision_numbers(self):
+        from src.runtime.DesktopRecovery import sanitize_json
+        digest='1234567890abcdef'*4
+        result=sanitize_json({'source_sha256':digest,'team':[{'confidence':.998877665544}],
+                              'uid':123456789,'error':'UID:123456789'})
+        encoded=json.dumps(result)
+        self.assertEqual(digest,json.loads(encoded)['source_sha256'])
+        self.assertEqual(.998877665544,json.loads(encoded)['team'][0]['confidence'])
+        self.assertEqual('[REDACTED]',json.loads(encoded)['uid'])
+
 
 if __name__=='__main__':unittest.main()
