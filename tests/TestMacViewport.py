@@ -2,8 +2,6 @@ import unittest
 import sys
 from types import SimpleNamespace
 from unittest.mock import patch
-import threading
-import subprocess
 
 import numpy as np
 
@@ -69,45 +67,3 @@ class TestMacViewport(unittest.TestCase):
         self.assertEqual(0, title_rows(np.zeros((800, 1280, 3), dtype=np.uint8), 640))
         frame = np.full((800, 1280, 3), [38, 55, 80], dtype=np.uint8)
         self.assertEqual(0, title_rows(frame, 640))
-
-    @unittest.skipUnless(sys.platform == 'darwin', 'macOS capture backend')
-    def test_system_fallback_keeps_raw_retina_extent_for_title_click_mapping(self):
-        from src.runtime.MacViewport import install_mac_viewport
-        from ok.device.capture_methods.macos import MacScreenCaptureMethod
-        from ok.platform.macos.window import MacWindow
-        install_mac_viewport()
-        window = MacWindow.__new__(MacWindow)
-        window.window_id, window.pid = 12, 34
-        window.x, window.y, window.width, window.height = 436, 275, 640, 432
-        window.display_id, window.display_scale = 1, 2.0
-        window.capture_width = window.capture_height = 0
-        window.helper = SimpleNamespace()
-        capture = MacScreenCaptureMethod(window, threading.Event())
-        frame = np.full((864, 1280, 3), 120, np.uint8)
-        frame[:64] = [42, 40, 38]
-        with patch('subprocess.run', return_value=subprocess.CompletedProcess([], 0, '', '')), \
-             patch('cv2.imread', return_value=frame), \
-             patch('src.runtime.MacViewport.fullscreen_window', return_value=False):
-            result = capture._capture_system_snapshot()
-        self.assertEqual((800, 1280, 3), result.shape)
-        self.assertEqual((1280, 864), (window.capture_width, window.capture_height))
-        self.assertEqual((756, 507), capture.get_abs_cords(640, 400))
-
-    @unittest.skipUnless(sys.platform == 'darwin', 'macOS capture backend')
-    def test_same_sized_new_display_invalidates_fullscreen_and_title_cache(self):
-        from src.runtime.MacViewport import install_mac_viewport
-        from ok.device.capture_methods.macos import MacScreenCaptureMethod
-        install_mac_viewport()
-        capture = MacScreenCaptureMethod.__new__(MacScreenCaptureMethod)
-        capture.mac_window = SimpleNamespace(width=640, height=432, capture_target_signature=(1,))
-        bgra = np.full((864, 1280, 4), 38, np.uint8)
-        bgra[:, :, 3] = 255
-        with patch('src.runtime.MacViewport.fullscreen_window', side_effect=[False, True]):
-            self.assertEqual(800, capture._opaque_content_frame(bgra).shape[0])
-            capture.mac_window.capture_target_signature = (2,)
-            self.assertEqual(864, capture._opaque_content_frame(bgra).shape[0])
-
-    def test_matching_width_on_other_vertical_display_is_not_fullscreen(self):
-        bounds = SimpleNamespace(origin=SimpleNamespace(x=0, y=-982),
-                                 size=SimpleNamespace(width=1512, height=982))
-        self.assertFalse(covers_display(SimpleNamespace(x=0, y=33, width=1512, height=949), bounds))

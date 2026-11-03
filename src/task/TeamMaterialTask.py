@@ -13,8 +13,6 @@ from src.task.CultivationTargetUI import NoCurrentMaterialNeed
 
 
 class TeamMaterialTask(TeamMaterialEntry, SafeMaterialTask):
-    desktop_preflight_required = False
-    desktop_allow_experimental = False
     target_override = ''
     skip_map_routes = False
     state_path = Path('configs/macos-desktop/team-material-needs-progress.json')
@@ -25,13 +23,13 @@ class TeamMaterialTask(TeamMaterialEntry, SafeMaterialTask):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.name = '全角色材料计划'
-        self.description = '识别当前三人队伍并读取培养需求；目标留空时自动跟随队伍，旧名单不匹配时停止。'
+        self.description = '适配已注册的鸣潮角色战斗模块；按队伍槽位对应的游戏培养目标，记录用时与材料/体力进度。'
         self.support_schedule_task = False
         self.default_config = {'本次最多领奖': 2, '本次波片上限': 80, '本次储备上限': 0,
                                '本次溶剂上限': 0, SOLVENT_TOTAL_CONFIG: 0,
                                self.SINGLE_TARGET_CONFIG: '',
                                '持续轮刷': False,
-                               self.TARGET_NAMES_CONFIG: '',
+                               '队伍培养目标名称（按1、2、3号位）': '',
                                '重置已完成进度': False, '结算批次策略': '效率优先',
                                '每个材料恢复次数': 1, '导航恢复次数': 2, '每批连续挑战场数': 2}
         self.config_description = {'每批连续挑战场数': '效率优先时每批1–3场，双倍每场计2份；批末返回，持续轮刷下一轮重查需求，可能少量多刷。',
@@ -40,9 +38,9 @@ class TeamMaterialTask(TeamMaterialEntry, SafeMaterialTask):
                                    '本次波片上限': '本次所有角色和材料共享的领奖额度；补充体力另受储备和溶剂上限约束，不花星声。',
                                    self.SINGLE_TARGET_CONFIG: '填写游戏内培养目标名，例如心。当前战斗队伍保持不变，只为此角色刷材料。',
                                    '持续轮刷': '每轮重新读取实际材料缺口，直到材料足够或本次资源额度耗尽。',
-                                   '本次溶剂上限': '默认0；与本任务配置的累计剩余额度取较小值。-1表示本次可用全部剩余额度；历史账本未知时禁止使用。',
+                                   '本次溶剂上限': '与累计剩余额度取较小值；-1表示本次可用全部剩余额度。历史账本未知时禁止使用，不花星声。',
                                    SOLVENT_TOTAL_CONFIG: SOLVENT_TOTAL_DESCRIPTION,
-                                   self.TARGET_NAMES_CONFIG: '留空时按实际识别的三人自动选择；填写时须与当前1、2、3号位完全对应，换队后旧名单不匹配会停止。替其他角色刷材料请使用单个培养目标。',
+                                   self.TARGET_NAMES_CONFIG: '填入当前队伍1、2、3号位各自对应的游戏内培养目标名，逗号分隔。战斗角色由已注册角色模板识别；可使用任意已支持角色。',
                                    '重置已完成进度': '重新生成一轮材料计划；不允许清除未确认的领奖。'}
         for kind, _, _ in ROLE_KINDS:
             self.default_config[f'{kind}每人次数'] = 1
@@ -172,8 +170,10 @@ class TeamMaterialTask(TeamMaterialEntry, SafeMaterialTask):
 
     @staticmethod
     def parse_target_names(value):
-        from src.task.TeamMaterialTargets import parse_target_names
-        return parse_target_names(value)
+        names = [name.strip() for name in str(value or '').replace('，', ',').split(',') if name.strip()]
+        if len(names) != 3 or len(set(names)) != 3:
+            raise ValueError('请按队伍1、2、3号位填写三个不同的游戏内培养目标名，以逗号分隔')
+        return names
 
     def begin_activity(self):
         from src.task.MaterialActivity import MaterialActivity
@@ -194,7 +194,7 @@ class TeamMaterialTask(TeamMaterialEntry, SafeMaterialTask):
         if int(self._activity.data.get('solvents_used', 0)) >= configured_solvent_total(self.config):
             self._activity_current_status = '溶剂授权额度已用完'
         self.info_set('材料轮刷', '初始化；检查队伍与培养目标')
-        self.info_set('功能范围', '普通材料、已适配Boss及部分周本；野外采集、后台输入尚未支持')
+        self.info_set('功能范围', '普通材料与已适配Boss；周本、野外采集、后台输入尚未支持')
         self.update_activity()
 
     def update_activity(self, status=None, publish_report=True):
@@ -276,15 +276,13 @@ class TeamMaterialTask(TeamMaterialEntry, SafeMaterialTask):
         return max(0.0, now - getattr(self, '_activity_job_started', now) - paused)
 
     def run(self):
-        self.result = {'status': 'running', 'phase': self.phase}
         self.begin_activity()
         try:
             if self.phase == 'claim':
                 self.resume_completed_reward()
             else:
                 self.run_material_plan()
-        except BaseException as exc:
-            self.result.update(status='stopped', error=str(exc))
+        except BaseException:
             self.update_activity(status='已停止')
             raise
         status = '已完成' if getattr(self, 'result', {}).get('status') == 'plan_completed' else '已暂停'
@@ -327,12 +325,6 @@ class TeamMaterialTask(TeamMaterialEntry, SafeMaterialTask):
         finally:
             from dataclasses import asdict
             self.result['budget'] = asdict(self.shared_budget)
-            # The GUI reuses this task instance. Flush with this run's cursor
-            # before releasing its budget; a later begin_activity() starts a
-            # fresh cursor and must not account for this settlement again.
-            # Pending claims remain in the durable progress file.
-            self.update_activity()
-            self.plan_job = self.shared_budget = None
             self.save_run_report()
 
     def pause(self):
@@ -394,35 +386,50 @@ class TeamMaterialTask(TeamMaterialEntry, SafeMaterialTask):
 
     def run_material_plan(self):
         self.assert_no_pending_refill()
-        previous = json.loads(self.state_path.read_text()) if self.state_path.exists() else {}
-        if previous.get('claim_pending'):
-            raise RuntimeError('上次领奖结果未确认；禁止自动重复领取')
-        if getattr(self, 'desktop_preflight_required', False):
-            from src.task.DesktopPreflightTask import require_desktop_preflight
-            require_desktop_preflight(self)
         self.focus_material_menu()
         self.return_to_world()
-        if not self.load_chars():
-            raise RuntimeError('本次队伍未识别；禁止沿用上次队伍，保留材料检查点')
-        from src.task.TeamMaterialTargets import resolve_material_targets
+        self.load_chars()
+        from src.char.CharFactory import char_names
+        if len(self.chars) != 3 or any(
+                not c or c.confidence < .8 or c.char_name not in char_names for c in self.chars):
+            raise RuntimeError('队伍有角色未被已注册的角色模板识别；请先校准角色模板')
         target = str(self.target_override or self.config.get(self.SINGLE_TARGET_CONFIG, '')).strip()
-        names = resolve_material_targets(self.chars, self.config.get(self.TARGET_NAMES_CONFIG, ''), target)
+        from src.runtime.CharacterCatalog import names_for_party
+        configured = self.config.get(self.TARGET_NAMES_CONFIG, '').strip()
+        names = ([target] if target else self.parse_target_names(configured) if configured else names_for_party(self.chars))
         roster = [str(c.char_name) for c in self.chars]
         self.info_set('已识别队伍', '、'.join(roster))
         self.info_set('培养目标对应', f'当前队伍为 {target} 刷材料' if target else
                       '；'.join(f'{i + 1}号位 {roster[i]} → {names[i]}' for i in range(3)))
-        # A checkpoint protects unsettled spending; it is not live inventory.
-        # Between launches the player may change party, weapon or cultivation
-        # goals, or spend shared materials on any character, not just the last
-        # one farmed. Preserve the old file until every requested scan returns.
-        jobs = self.scan_required_jobs(names)
-        if not jobs or {job['target'] for job in jobs} != set(names):
-            raise RuntimeError('本次培养目标材料扫描不完整；保留旧检查点，禁止使用旧库存')
+        previous = json.loads(self.state_path.read_text()) if self.state_path.exists() else {}
+        if previous.get('claim_pending'):
+            raise RuntimeError('上次领奖结果未确认；禁止自动重复领取')
+        refresh = self.config.get('重置已完成进度') or self.config.get('持续轮刷')
+        reuse_saved = bool(previous and not refresh
+                          and all(job['target'] in names for job in previous.get('jobs', [])))
+        if reuse_saved:
+            jobs = previous['jobs']
+        elif (self.config.get('持续轮刷') and previous.get('jobs')
+              and {j['target'] for j in previous['jobs']} == set(names)
+              and not any(j['kind'] == '目标待核对' for j in previous['jobs'])):
+            ledger = json.loads(self.activity_path.read_text())
+            claims = [e for e in ledger.get('events', []) if e.get('claim_units', 0) or e.get('claims', 0)]
+            last = (claims[-1] if claims else None) or ledger.get('current_job') or {}
+            changed = [last['target']] if last.get('target') in names else names
+            jobs = self.refresh_changed_targets(previous['jobs'], changed)
+        else:
+            jobs = self.scan_required_jobs(names)
+        signature = plan_fingerprint(jobs)
+        if previous.get('claim_pending'):
+            raise RuntimeError('上次领奖结果未确认；请人工核对进度，禁止自动重复领取')
+        if reuse_saved:
+            self.progress = previous
+            self.progress['plan_id'] = signature
+        else:
+            self.progress = {'plan_id': signature, 'next_job': 0, 'claim_pending': False, 'jobs': jobs}
         from datetime import datetime
-        self.progress = {'plan_id': plan_fingerprint(jobs), 'next_job': 0,
-                         'claim_pending': False, 'jobs': jobs, 'roster': roster,
-                         'targets': names, 'completed_jobs': [],
-                         'observed_at': datetime.now().astimezone().isoformat(timespec='seconds')}
+        if refresh:
+            self.progress['observed_at'] = datetime.now().astimezone().isoformat(timespec='seconds')
         self.config['重置已完成进度'] = False
         self.write_progress()
         self.shared_budget = MaterialRunBudget(int(self.config['本次最多领奖']),
@@ -442,6 +449,9 @@ class TeamMaterialTask(TeamMaterialEntry, SafeMaterialTask):
                 claims_before = self.shared_budget.claimed
                 changed_targets = set()
                 for index in self.pending_job_indices(jobs):
+                    if getattr(self, 'stop_after_current', False):
+                        self.result['status'] = 'stopped_after_current'
+                        return
                     if index in self.progress.get('completed_jobs', []):
                         continue
                     self.job_index = index
@@ -493,17 +503,14 @@ class TeamMaterialTask(TeamMaterialEntry, SafeMaterialTask):
                     if self.shared_budget.claimed > job_claims_before:
                         changed_targets.add(job['target'])
                         self.return_to_world()
-                        # Every claim can change a bag shared by several
-                        # targets. Re-observe all requested targets before
-                        # comparing stock; old peers are not simultaneous data.
-                        fresh = self.scan_required_jobs(names)
+                        fresh = self.scan_required_jobs([job['target']])
                         if any(r['kind'] == '目标待核对' for r in fresh):
                             raise RuntimeError('领奖后库存核对失败，不发布旧库存')
-                        if {r['target'] for r in fresh} != set(names):
-                            raise RuntimeError('领奖后材料扫描不完整，不发布旧库存')
-                        by_key = {(r['target'], r['kind'], r.get('repeat', 0)): r for r in fresh}
+                        by_key = {(r['kind'], r.get('repeat', 0)): r for r in fresh}
                         for queued in jobs:
-                            observed = by_key.get((queued['target'], queued['kind'], queued.get('repeat', 0)))
+                            if queued['target'] != job['target']:
+                                continue
+                            observed = by_key.get((queued['kind'], queued.get('repeat', 0)))
                             if observed is not None:
                                 queued.clear()
                                 queued.update(observed)
@@ -548,7 +555,6 @@ class TeamMaterialTask(TeamMaterialEntry, SafeMaterialTask):
                 jobs = apply_shared_material_plan(jobs)
                 self.progress = {'plan_id': plan_fingerprint(jobs), 'next_job': 0,
                                  'claim_pending': False, 'jobs': jobs, 'completed_jobs': [],
-                                 'roster': roster, 'targets': names,
                                  'observed_at': datetime.now().astimezone().isoformat(timespec='seconds')}
                 self.write_progress()
         except Exception as exc:
@@ -556,13 +562,12 @@ class TeamMaterialTask(TeamMaterialEntry, SafeMaterialTask):
             raise
         finally:
             from dataclasses import asdict
-            preflight = (self.result or {}).get('preflight')
             self.result = {'status': ('available_materials_ready' if available_done else
                                       'plan_completed' if self.progress['next_job'] >= len(jobs) else 'plan_paused'),
                            'next_job': self.progress['next_job'], 'total_jobs': len(jobs),
                            'jobs': reports, 'budget': asdict(self.shared_budget)}
-            if preflight is not None:
-                self.result['preflight'] = preflight
+            if getattr(self, 'stop_after_current', False):
+                self.result['status'] = 'stopped_after_current'
             if failure:
                 self.result.update(status='stopped', error=failure)
             self.save_run_report()

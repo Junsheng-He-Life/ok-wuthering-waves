@@ -52,10 +52,12 @@ def select_owned_target(task, desired):
     if not found:
         found = select_cached_avatar(task, desired, name_matches)
     if not found:
-        # Cache files are only hints: display or roster changes can invalidate
-        # them. Relearn from observed owned cards and their preview names;
-        # no target is committed until the requested name is verified.
-        task.log_info(f'cultivation avatar unavailable; verify visible roster cards: {desired}')
+        from src.task.CultivationAvatarCache import cache_paths
+        if all(p.exists() for p in cache_paths(desired)):
+            import cv2
+            cv2.imwrite('logs/cultivation-cached-avatar-missed.png', task.frame)
+            raise RuntimeError(f'{desired}已记忆头像未命中；禁止逐个点击其他角色')
+    if not found:
         scroll_roster(task, 100)
         featured = [b for b in task.ocr(box=viewport(task, .01, .10, .63, .30))
                     if normalize(b.name) == normalize(desired)]

@@ -10,13 +10,10 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 FRAMEWORK = ROOT.parent / 'ok-script'
-APP_MODULES = (
-    'TestDesktopPanel', 'TestDesktopUserState', 'TestDesktopClaimReconciliation',
-    'TestDesktopPreflight', 'TestBetaPackage', 'TestDesktopEnvironment',
-    'TestMacSession', 'TestMacViewport', 'TestMacWindowSelection', 'TestUltrawide',
-)
-BACKEND_MODULES = ('test_macos_geometry.py', 'test_start_controller_errors.py',
-                   'test_macos_backend.py')
+APP_MODULES = ('TestReleaseWorkflow', 'TestDesktopProcess', 'TestDesktopUserState', 'TestBetaPackage',
+               'TestDesktopEnvironment', 'TestMacSession', 'TestMacViewport',
+               'TestMacWindowSelection', 'TestUltrawide')
+BACKEND_MODULES = ('test_macos_backend.py',)
 
 
 def main(argv=None):

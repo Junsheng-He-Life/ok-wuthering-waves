@@ -65,7 +65,7 @@ class TestDesktopRuntime(unittest.TestCase):
         self.assertEqual(2, len(calls))
         self.assertTrue(all(line.startswith(f'{local}|{self.root}|') for line in calls))
         self.assertIn('check_desktop_environment.py', calls[0])
-        self.assertIn('scripts/macos_app.py', calls[1])
+        self.assertIn('scripts/desktop_panel.py', calls[1])
 
     def test_missing_runtime_does_not_try_global_python(self):
         result = self.run_command()
@@ -86,7 +86,7 @@ class TestDesktopRuntime(unittest.TestCase):
         self.runtime(app_status=23)
         result = self.run_command()
         self.assertEqual(23, result.returncode)
-        self.assertIn('程序未正常退出', result.stdout)
+        self.assertIn('窗口未正常退出', result.stdout)
 
     def test_standalone_diagnosis_never_launches_gui(self):
         self.runtime()

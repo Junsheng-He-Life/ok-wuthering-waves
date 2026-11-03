@@ -20,18 +20,26 @@ except ModuleNotFoundError:
 APP_FILES = (
     'config.py', 'version.py', 'requirements-macos.lock.txt', 'README.md', 'README_en.md', 'UPSTREAM.md',
     '启动 OK-WW.command', '诊断 OK-WW.command', '安装 OK-WW.command',
-    'profiles/macos-native-screen.json',
+    'profiles/macos-native-screen.json', 'profiles/characters.json',
     'scripts/macos_app.py', 'scripts/macos_probe.py',
     'scripts/check_desktop_environment.py', 'scripts/desktop_runtime.sh',
-    'scripts/desktop_panel.py', 'scripts/desktop_diagnose.py',
+    'scripts/desktop_panel.py', 'scripts/desktop_diagnose.py', 'scripts/build_macos_launcher.py',
     'scripts/ultrawide_trial.py', 'scripts/bootstrap_macos.py',
     'assets/echo_model/echo.onnx', 'assets/images/leviathan-reward-orb-1920.png',
     'assets/images/map-beacon-huanglong-1920.png', 'assets/images/map-nexus-huanglong-1920.png',
-    'docs/beta-user-guide.md', 'docs/beta-release-2026-10-30.md', 'docs/development.md',
-    'docs/images/desktop-main.png', 'docs/images/desktop-small.png',
+    'assets/images/jinhsi-e-entry-1920.png', 'assets/images/jinhsi-e-airborne-1920.png',
+    'assets/images/jinhsi-e-finisher-1920.png',
+    'docs/release-0.1.0-beta.2.md',
+    'docs/beta-user-guide.md', 'docs/development.md', 'docs/images/desktop-main.png',
+    'scripts/build_macos_beta.py', 'scripts/beta_assets.py',
+    'scripts/test_beta_public.py', 'scripts/test_material_stability.py',
+    'requirements-dev.txt', '.github/ISSUE_TEMPLATE/macos-test.yml',
+    'tests/__init__.py', 'tests/TestReleaseWorkflow.py', 'tests/TestDesktopProcess.py', 'tests/TestDesktopUserState.py',
+    'tests/TestBetaPackage.py', 'tests/TestDesktopEnvironment.py', 'tests/TestMacSession.py',
+    'tests/TestMacViewport.py', 'tests/TestMacWindowSelection.py', 'tests/TestUltrawide.py',
 )
-APP_TREES = {'src': {'.py'}, 'icons': {'.png', '.ico', '.svg'}, 'i18n': {'.mo'}}
-FRAMEWORK_SUFFIXES = {'.py', '.swift', '.qm', '.qss', '.qrc', '.svg', '.png', '.ico'}
+APP_TREES = {'src': {'.py'}, 'icons': {'.png', '.ico', '.svg'}, 'i18n': {'.mo', '.po'}}
+FRAMEWORK_SUFFIXES = {'.py', '.swift', '.qm', '.ts', '.qss', '.qrc', '.svg', '.png', '.ico'}
 BLOCKED_PARTS = {'.git', '.venv', '.venv313', '__pycache__', 'configs', 'logs', 'data', 'runs'}
 
 
@@ -80,6 +88,7 @@ def export_sources(app, framework, stage):
     for source in sorted((framework / 'ok').rglob('*')):
         if source.is_file() and source.suffix in FRAMEWORK_SUFFIXES and '__pycache__' not in source.parts:
             copy_file(framework, source.relative_to(framework), framework_target, source_hashes)
+    copy_file(framework, Path('tests/test_macos_backend.py'), framework_target, source_hashes)
     # Whole-image consumers use these small icon crops; full captures are omitted.
     from PIL import Image
     for name in ('leviathan-reward-orb-1920.png', 'map-beacon-huanglong-1920.png', 'map-nexus-huanglong-1920.png'):
@@ -106,7 +115,7 @@ def write_entrypoints(stage, version):
 1. 安装 Python 3.13 与 Xcode Command Line Tools。
 2. 双击「安装与检查.command」，下载本版本锁定的依赖并做离线诊断。
 3. 双击「启动.command」，按界面完成权限、账号和任务设置。
-4. 先检查队伍，再做一场限额测试。暂停/停止使用界面控件或配置的快捷键。
+4. 先检查队伍，再做一场限额测试。暂停/停止使用界面底部控件。
 
 两个项目目录必须保留相邻关系。不要从其他人的目录复制 configs、logs 或 .venv。
 升级请解压到新目录并保留旧版。目前不提供自动账号迁移；有旧账本或待核对消费时先请维护者协助，不要删文件解锁。

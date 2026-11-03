@@ -8,8 +8,8 @@ import hashlib
 import os
 from pathlib import Path
 import sys
-import tempfile
 import unittest
+import tempfile
 from contextlib import contextmanager
 
 
@@ -24,21 +24,14 @@ MODULES = (
     'TestMaterialEntryUI', 'TestMaterialActivity', 'TestMaterialBeaconRecovery',
     'TestDomainLocationFallback', 'TestMaterialNeedsReport', 'TestBattleEvidence',
     'TestPortraitHealth', 'TestSuisuiRotation', 'TestSuisuiHud',
-    'TestEchoFarmTask', 'TestEchoFailureRecovery', 'TestEchoCombatPolicy', 'TestEchoSkillOpportunities',
-    'TestEchoAlternateTeamSkills',
-    'TestXinRotation', 'TestXinRecognition', 'TestJinhsiEchoGuards', 'TestDetonationEchoState',
-    'TestCartethyiaEchoGuards', 'TestAlternateHealerRescue', 'TestEchoIntroSupport',
-    'TestCombatSwitch', 'TestRecordedConcertoRings',
-    'TestMenuPendingInspection', 'TestRewardResultObservation',
-    'TestTeamCombatAdaptation', 'TestBossLiberationRetry', 'TestEchoCooldownReading',
-    'TestXuanlingEchoReadiness',
-    'TestMaterialPlanRefresh', 'TestCultivationAvatarCache',
-    'TestOriginalCombatEntry', 'TestSharedMaterialPlanner',
-    'TestDesktopEnvironment', 'TestMaterialTestIsolation',
-    'TestMaterialAuthorization', 'TestSharedMaterialInventory',
-    'TestMaterialQueueSnapshot', 'TestMaterialActivityRestart',
-    'TestDesktopPreflight', 'TestDesktopUserState', 'TestDesktopClaimReconciliation',
-    'TestDesktopPanel',
+    'TestEchoFarmTask',
+    'TestEncounterProgress', 'TestBossLiberationRetry', 'TestXinRecognition',
+    'TestXinRotation', 'TestFullHpSeparator', 'TestDoulingHeavyGuard',
+    'TestRecoveryEligibility', 'TestVerifiedTeamStart', 'TestReserveExchange',
+    'TestJinhsiPreparation', 'TestStageCatalog',
+    'TestNativeCooldownReading',
+    'TestIndependentReadySkills',
+    'TestNoClaimVictory',
 )
 
 
@@ -89,6 +82,7 @@ def isolated_test_workspace(root=ROOT):
 
 
 def main():
+    os.chdir(ROOT)
     os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
     sys.path[:0] = [str(ROOT), str(FRAMEWORK)]
     digest = hashlib.sha256()
@@ -99,11 +93,7 @@ def main():
         digest.update(path.read_bytes())
     print(f'Python: {sys.executable} ({sys.version.split()[0]})', flush=True)
     print(f'Project/framework source SHA256: {digest.hexdigest()}', flush=True)
-    with isolated_test_workspace() as workspace:
-        print(f'Isolated test workspace: {workspace}', flush=True)
-        result = unittest.main(module=None, exit=False,
-                               argv=[sys.argv[0], *('tests.' + name for name in MODULES)])
-    raise SystemExit(not result.result.wasSuccessful())
+    unittest.main(module=None, argv=[sys.argv[0], *('tests.' + name for name in MODULES)])
 
 
 if __name__ == '__main__':

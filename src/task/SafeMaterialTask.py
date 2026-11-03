@@ -23,6 +23,13 @@ class SafeMaterialTask(MaterialWorkflow, DetonationTeam, XuanlingTeam, VerifiedD
     result = None
     shared_budget = None
     plan_job = None
+    max_stamina_limit = None
+
+    def finish_domain_destination(self, is_team_page):
+        if is_team_page:
+            from src.task.TeamMaterialEntry import TeamMaterialEntry
+            return TeamMaterialEntry.start_material_team_verified(self)
+        return super().finish_domain_destination(is_team_page)
 
     def next_frame(self):
         # macOS sends game input only to the foreground app. A chat or system
@@ -33,7 +40,6 @@ class SafeMaterialTask(MaterialWorkflow, DetonationTeam, XuanlingTeam, VerifiedD
             window = getattr(interaction, 'mac_window', None)
             if window is not None and not window.is_foreground():
                 self.mouse_up()
-                self.held_attack_interrupted = True
                 if not window.bring_to_front():
                     raise DomainBattleFailed('战斗中游戏失去前台且无法恢复')
                 self.log_info('Battle focus restored before next input')
@@ -63,6 +69,8 @@ class SafeMaterialTask(MaterialWorkflow, DetonationTeam, XuanlingTeam, VerifiedD
         budget = self.shared_budget or MaterialRunBudget(runs, 0 if no_claim else runs * 40,
                                    0 if no_claim else reserve,
                                    int(settings.get('Maximum recovery attempts', 1)))
+        if not no_claim and self.max_stamina_limit is not None:
+            budget.max_stamina = min(budget.max_stamina, self.max_stamina_limit)
         if self.phase == 'claim' and getattr(self, '_plan_boss', False):
             budget.claim_cost = 60
             budget.max_stamina = runs * 60
@@ -246,6 +254,9 @@ class SafeMaterialTask(MaterialWorkflow, DetonationTeam, XuanlingTeam, VerifiedD
                 return
             if self.phase == 'recover':
                 self.focus_material_menu()
+                if self.menu_text(r'单人挑战|开启挑战', (.70, .85, 1, 1), timeout=.5):
+                    # A failed start is still a menu, not an entered instance.
+                    self.return_to_world()
                 # Recovery may be started from the cultivation page after a
                 # failed plan. Only invoke domain exit when no known menu is
                 # open; domain exit otherwise waits for a world that cannot

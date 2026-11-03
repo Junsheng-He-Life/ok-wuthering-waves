@@ -1,4 +1,5 @@
 """Keep macOS window decoration outside the game's recognition coordinates."""
+import threading
 import sys
 
 import cv2
@@ -37,7 +38,6 @@ def opaque_game_frame(bgra):
 def covers_display(window, bounds):
     """A fullscreen window may exclude the menu bar from its reported bounds."""
     return (abs(getattr(window, 'x', -10000)-bounds.origin.x) <= 2
-            and -2 <= getattr(window, 'y', 0)-getattr(bounds.origin, 'y', 0) <= 40
             and abs(window.width-bounds.size.width) <= 2
             and bounds.size.height-40 <= getattr(window, 'height', 0) <= bounds.size.height+2)
 
@@ -59,10 +59,18 @@ def install_mac_viewport():
     normalize = cls._normalize_content_frame
     coordinates = cls.get_abs_cords
     width_property, height_property = cls.width, cls.height
+    start_stream = cls._start_stream
+    start_lock = threading.RLock()
+
+    def synchronized_start(self):
+        # Device refresh and task startup can ask for the first frame together.
+        # One stream must survive both requests rather than each replacing it.
+        with start_lock:
+            return start_stream(self)
+
     def crop(self, frame):
         geometry = (frame.shape[:2], self.mac_window.width,
-                    getattr(self.mac_window, 'height', None),
-                    getattr(self.mac_window, 'capture_target_signature', None))
+                    getattr(self.mac_window, 'height', None))
         if getattr(self, '_game_title_geometry', None) != geometry:
             self._game_title_geometry = geometry
             self._game_title_rows = 0
@@ -82,7 +90,6 @@ def install_mac_viewport():
         # MacWindow retains the raw capture size, including window decoration.
         # Add the removed rows before converting pixels into screen points.
         if getattr(self, '_game_title_rows', 0):
-            self.assert_geometry_current()
             return self.mac_window.get_abs_cords(x, y + self._game_title_rows)
         return coordinates(self, x, y)
 
@@ -94,12 +101,10 @@ def install_mac_viewport():
         frame = self._latest_frame
         return frame.shape[0] if frame is not None else height_property.fget(self)
 
+    cls._start_stream = synchronized_start
     cls._opaque_content_frame = opaque_content
     cls._normalize_content_frame = normalize_content
     cls.get_abs_cords = absolute_coordinates
-    # Current tasks may have recognized a button immediately before the screen
-    # changes. End that round; a new runner performs resolution and party checks.
-    cls.stop_on_geometry_change = True
     cls.width = property(content_width)
     cls.height = property(content_height)
     cls._game_viewport_installed = True

@@ -1,0 +1,51 @@
+name: macOS 测试 / 报错报告
+description: 提交GUI导出的脱敏诊断包与复现步骤
+title: "[macOS] "
+body:
+  - type: markdown
+    attributes:
+      value: "先停止任务，保留原安装和待核对消费记录，不要删除文件解锁或重复领奖。请在GUI的‘记录与问题报告’导出诊断ZIP，检查后手动附在表单底部；额外截图请遮住UID与账号名。"
+  - type: input
+    id: version
+    attributes:
+      label: 软件版本 / Release标签
+      placeholder: 0.1.0-beta.2
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Mac芯片、macOS、游戏语言和画面尺寸
+    validations:
+      required: true
+  - type: dropdown
+    id: task
+    attributes:
+      label: 出问题的任务
+      options: [安装或启动, 读取队伍或列表, 无音区, Boss, 指定材料副本, 培养需求计划, 暂停或停止, 领奖或补给, 导出报告]
+    validations:
+      required: true
+  - type: input
+    id: party
+    attributes:
+      label: 出战三人、培养角色与副本
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 复现步骤、预期结果和实际表现
+      description: 包括是否切窗口、手动操作、改变画面，以及错误发生阶段。
+    validations:
+      required: true
+  - type: textarea
+    id: attachments
+    attributes:
+      label: 脱敏诊断ZIP、报错摘要及可选截图
+      description: 拖入GUI导出的ZIP。截图须先遮住UID和账号名；不要上传configs目录、完整账本或未经检查的原始日志。
+  - type: checkboxes
+    id: resource
+    attributes:
+      label: 消费情况
+      options:
+        - label: 此次关闭了领奖和所有补给
+        - label: 存在待核对领奖或补给，我已保留原记录且未重复点击
+        - label: 已检查附件，未包含密码、令牌、UID或账号名称

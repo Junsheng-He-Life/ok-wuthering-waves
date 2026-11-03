@@ -69,12 +69,17 @@ class MaterialBossGuard(MaterialBossHealing):
             if treasure is not None and treasure():
                 self._battle_end_seen = True
                 return
-            if not self.in_team()[0] or not self.check_health_bar():
+            if not self.in_team()[0]:
                 # Boss transitions and liberation cameras can hide the bar.
                 # Pause input; the acquisition deadline bounds this grace.
                 self.sleep(.3)
                 continue
             self.check_material_boss_health()
+            if not self.check_health_bar():
+                # A transition or nearly empty enemy bar must not suspend
+                # player-health supervision during the acquisition wait.
+                self.sleep(.3)
+                continue
             self.log_info('boss acquisition: checking target HUD')
             if self.boss_target_locked():
                 self.log_info('boss acquisition: target HUD confirmed')
@@ -100,23 +105,23 @@ class MaterialBossGuard(MaterialBossHealing):
             if victory and victory():
                 self._battle_end_seen = True
                 return
-            self.fail_battle('Boss 获取目标超过时限（默认 8 秒）；停止等待并返回治疗')
+            seconds = self.boss_policy_value('acquire_seconds', 8)
+            self.fail_battle(f'Boss 获取目标超过时限（{seconds:g} 秒）；停止等待并返回治疗')
+
+    def boss_target_ui_available(self):
+        getter = getattr(self, 'get_current_char', None)
+        char = getter(raise_exception=False) if callable(getter) else None
+        # Mornye's airborne controls replace the ground target HUD. Absence
+        # of that ground icon cannot establish target loss in this form.
+        if char and char.char_name in ('char_moning', 'char_moning_new'):
+            return not char.on_air()
+        return True
 
     def check_material_boss_health(self):
         from src.task.VerifiedDomainCombat import DomainBattleFailed
         hp = self.read_boss_hp()
         if hp is None:
             self._boss_unreadable_hp += 1
-            observation = getattr(self, '_hp_observation', {}) or {}
-            bars = observation.get('portrait_ratios', ())
-            age = time.monotonic() - observation.get('monotonic', float('-inf'))
-            if (observation.get('team_verified') and 0 <= age <= 1
-                    and len(bars) == 3 and all(bar is not None and bar >= .7 for bar in bars)):
-                # A fresh, fully readable healthy team can corroborate safety
-                # while damage effects hide numeric HP. This never supplies
-                # numeric healing evidence or permits a low/unknown bar.
-                self.log_info('numeric HP obscured; fresh healthy team portrait bars confirmed')
-                return
             if self.in_team()[0] and self.check_health_bar():
                 # Damage effects can obscure the active character's HP text
                 # while the boss encounter is plainly still running.
@@ -132,7 +137,7 @@ class MaterialBossGuard(MaterialBossHealing):
             now = time.monotonic()
             previous = self._boss_hp_samples.get(slot)
             self._boss_hp_samples[slot] = (now, hp[0] / hp[1])
-            if (previous and 0 <= now - previous[0] <= 3
+            if (previous and now - previous[0] <= 3
                     and previous[1] - hp[0] / hp[1] >= .12
                     and now - self._boss_last_dodge >= 3):
                 # Damage reaction, not a prediction of a telegraphed attack.
@@ -141,10 +146,6 @@ class MaterialBossGuard(MaterialBossHealing):
                 self.held_attack_interrupted = True
                 self.send_key('shift', down_time=.08)
                 self.log_info('Boss burst damage: release held attack and dodge once')
-                result = getattr(self, 'result', None)
-                if isinstance(result, dict):
-                    result.setdefault('damage_dodges', []).append({'slot': slot + 1,
-                        'hp_ratio': round(hp[0] / hp[1], 3)})
 
         if self.request_boss_healing(hp):
             return
@@ -163,12 +164,10 @@ class MaterialBossGuard(MaterialBossHealing):
             return
         self._boss_guard_at = now + self.boss_policy_value('health_interval', 1)
         self.check_material_boss_health()
-        if getattr(self, '_boss_healing', False):
+        if getattr(self, '_boss_healing', False) or not getattr(self, '_plan_boss', False):
             return
-        if not getattr(self, '_plan_boss', False):
-            guard_target = getattr(self, 'guard_echo_target', None)
-            if callable(guard_target):
-                guard_target()
+        if not self.boss_target_ui_available():
+            self._boss_target_missing_at = None
             return
         if self.boss_target_locked():
             self._boss_target_missing_at = None

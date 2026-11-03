@@ -15,6 +15,8 @@ if [ -z "$INSTALL_PYTHON" ]; then
   exit 1
 fi
 status=0
-"$INSTALL_PYTHON" scripts/bootstrap_macos.py "$@" || status=$?
+mkdir -p logs
+set -o pipefail
+"$INSTALL_PYTHON" scripts/bootstrap_macos.py "$@" 2>&1 | tee logs/installation.log || status=$?
 if [ -t 0 ]; then read -r -p '按回车关闭…' _; fi
 exit "$status"

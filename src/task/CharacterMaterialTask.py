@@ -216,10 +216,22 @@ class CharacterMaterialTask(DomainTask):
             import cv2
             from pathlib import Path
             folder = Path('logs') / self.COMBAT_DEBUG_FRAME_FOLDER
+            if getattr(self, 'desktop_recording_id', None):
+                from collections import deque
+                folder = Path('logs/combat-recordings') / self.desktop_recording_id
+                if not hasattr(self, '_desktop_saved_frames'):
+                    self._desktop_saved_frames = deque()
             folder.mkdir(parents=True, exist_ok=True)
-            if not cv2.imwrite(str(folder / f'{time.time_ns()}.jpg'), frame.copy(),
+            path = folder / f'{time.time_ns()}.jpg'
+            if not cv2.imwrite(str(path), frame.copy(),
                                [cv2.IMWRITE_JPEG_QUALITY, 85]):
                 raise RuntimeError('combat debug frame write failed')
+            if getattr(self, 'desktop_recording_id', None):
+                self._desktop_saved_frames.append(path)
+                while len(self._desktop_saved_frames) > 600:
+                    self._desktop_saved_frames.popleft().unlink(missing_ok=True)
+                if isinstance(getattr(self, 'result', None), dict):
+                    self.result['recording_dir'] = str(folder)
             self._combat_debug_frame_count += 1
             return True
         self.screenshot(
@@ -273,15 +285,8 @@ class CharacterMaterialTask(DomainTask):
         return False
 
     def wait_for_full_con_before_switch(self):
-        """Allow a bounded Concerto buildup for any freshly identified team."""
-        char = self.get_current_char(raise_exception=False)
-        if char is None:
-            return False
-        # Low recharge or an unreadable ring must not hold an unfamiliar team
-        # on one character for the entire encounter.
-        limit = 18 if char.is_healer else 12
-        started = max(char.last_switch_in_time, getattr(self, 'combat_start', 0))
-        return started > 0 and time.time() - started < limit
+        """Keep each farming character active until its Concerto ring is full."""
+        return True
 
     def use_sparse_con_ring_detection(self):
         """Support the current thin segmented Concerto ring used by this team."""

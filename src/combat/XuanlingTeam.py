@@ -15,12 +15,8 @@ class XuanlingTeam:
 
     def preferred_switch_target(self, current_char, candidates, has_intro):
         if self.xuanling_team_active():
-            for offset in (1, 2):
-                name = ORDER[(ORDER.index(current_char.char_name) + offset) % len(ORDER)]
-                candidate = next((c for c in candidates if c.char_name == name), None)
-                if candidate and time.monotonic() >= getattr(candidate, 'recovery_until', 0):
-                    return candidate
-            return None
+            name = ORDER[(ORDER.index(current_char.char_name) + 1) % len(ORDER)]
+            return next((c for c in candidates if c.char_name == name), None)
         return super().preferred_switch_target(current_char, candidates, has_intro)
 
     def wait_for_full_con_before_switch(self):

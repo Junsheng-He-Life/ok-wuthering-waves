@@ -3,43 +3,27 @@ import re
 import time
 
 from src.task.BaseCombatTask import NotInCombatException
-from src.combat.CombatCheck import CombatCheck
 from src.combat.MaterialBossGuard import MaterialBossGuard
 from src.combat.MaterialBossHealing import BossHealRequested
 from src.combat.NativeAttackCadence import NativeAttackCadence
+from src.combat.VerifiedCombatPolicy import VerifiedCombatPolicy
+from src.combat.EncounterProgress import EncounterProgress
 
 
 class DomainBattleFailed(RuntimeError):
     pass
 
 
-class VerifiedDomainCombat(NativeAttackCadence, MaterialBossGuard):
+class VerifiedDomainCombat(VerifiedCombatPolicy, NativeAttackCadence, MaterialBossGuard):
     _verified_battle = False
     record_hud = False
 
-    def allow_combat_without_target(self):
-        """Use the original lock-on requirement when acquiring an encounter."""
-        return False
-
-    def original_combat_detected(self):
-        """Run OKWW's lock indicator / health-bar and retarget entry check."""
-        return CombatCheck.in_combat(self)
-
-    def confirm_combat_entry(self):
-        """Discard the previous encounter's latch before the opening rotation.
-
-        A challenge interaction or a visible bar is only an entry candidate.
-        Let CombatCheck confirm lock-on before sending attacks; settlement,
-        reward verification and the active rotation retain their own policies.
-        """
-        self.do_reset_to_false()
-        if not self.wait_until(self.original_combat_detected, time_out=8,
-                               raise_if_not_found=False):
-            self.fail_battle('原版接敌判断未确认锁定目标；停止本场战斗')
-        self.log_info('combat entry confirmed by original OKWW detection')
-
     def material_victory_visible(self):
         if self.find_treasure_icon():
+            return True
+        dialog = getattr(self, 'reward_choice_dialog_current_frame', None)
+        if (getattr(self, '_verified_battle', False) and not self.in_team()[0]
+                and callable(dialog) and dialog()):
             return True
         if not getattr(self, '_plan_boss', False) or not self.in_team()[0] or self.check_health_bar():
             return False
@@ -63,44 +47,16 @@ class VerifiedDomainCombat(NativeAttackCadence, MaterialBossGuard):
             raise RuntimeError('start prompt not verified; no interaction')
         return True
 
-    def resume_verified_rotation(self):
-        """Reacquire a non-boss encounter after a character action timeout.
-
-        A failed liberation animation check does not prove victory. Release
-        the old combat latch and require the original lock-on detector again;
-        the battle deadline and health guards still bound this recovery.
-        """
-        if getattr(self, '_plan_boss', False):
-            return False
-        self.do_reset_to_false()
-
-        def reacquired():
-            if not self.in_combat():
-                return True
-            if not self.in_team_and_world():
-                return False
-            # The enemy may be behind the camera, where no health bar can
-            # trigger CombatCheck's usual retarget branch. A lock attempt is
-            # safe here because entry was verified and no attack is emitted.
-            self.target_enemy(wait=False)
-            self.next_frame()
-            return self.original_combat_detected()
-
-        restored = self.wait_until(reacquired, time_out=8, raise_if_not_found=False)
-        if restored:
-            self.log_info('character action interrupted; encounter reacquired or victory verified')
-        return bool(restored)
-
     def fight_verified_domain(self):
         self._settlement_health = (0, [])
         restarted = getattr(self, '_material_restarted', False)
         self._material_restarted = False
         needs_start = False if restarted and self.check_health_bar() else self.prepare_verified_battle()
-        if not self.load_chars():
-            raise RuntimeError('live team could not be read; combat not started')
+        self.load_chars()
         for char in self.chars:
             if char is not None:
                 char.recovery_until = 0
+                char.recovery_required = False
         unknown = [i + 1 for i, c in enumerate(self.chars)
                    if c is None or c.char_name == 'unknown' or c.confidence < .8]
         if unknown:
@@ -108,13 +64,11 @@ class VerifiedDomainCombat(NativeAttackCadence, MaterialBossGuard):
         if needs_start:
             self.pick_f(handle_claim=False)
         self.combat_start = time.time()
-        battle_started = time.monotonic()
-        # Tacet trials expose a five-minute challenge timer. Their wave-local
-        # counters can reset to 0/1, so material-domain kill extensions do not
-        # describe their progress. Keep the same finite five-minute hard cap.
-        self._battle_deadline = battle_started + (300 if getattr(self, 'echo_mode', None) == 'tacet' else 150)
-        self._battle_hard_deadline = battle_started + 300
+        self._battle_deadline = time.monotonic() + 150
+        self._battle_hard_deadline = self._battle_deadline + 150
         self._deadline_kills = 0
+        self._encounter_progress = EncounterProgress()
+        self._objective_poll_after = 0
         self.boss_profile = None
         self._boss_hp_samples = {}
         self._boss_last_dodge = 0
@@ -125,8 +79,7 @@ class VerifiedDomainCombat(NativeAttackCadence, MaterialBossGuard):
         self._boss_acquire_deadline = None
         self._hp_observation = None
         self._hp_observation_frame = None
-        self._verified_battle = True
-        self._in_combat = False
+        self._verified_battle = self._in_combat = True
         self._battle_end_probe = 0
         self._battle_hud_probe = 0
         self._battle_snapshot_at = 0
@@ -148,7 +101,6 @@ class VerifiedDomainCombat(NativeAttackCadence, MaterialBossGuard):
                     self.acquire_material_boss()
                 except BossHealRequested as request:
                     self.heal_material_boss(request)
-            self.confirm_combat_entry()
             try:
                 self.on_combat_started()
             except BossHealRequested as request:
@@ -179,21 +131,14 @@ class VerifiedDomainCombat(NativeAttackCadence, MaterialBossGuard):
                     self._in_combat = False
                     self.mouse_up()
                     self.next_frame()
-                    try:
-                        if self.resume_verified_rotation():
-                            continue
-                    except BossHealRequested as request:
-                        # Health guards also run while reacquiring. Route
-                        # their request through the same rescue as rotation.
-                        self.heal_material_boss(request)
-                        continue
-                    if (getattr(self, '_plan_boss', False)
-                            and self.in_team()[0] and self.check_health_bar()):
+                    if (not self.material_victory_visible() and self.in_team()[0]
+                            and (self.check_health_bar() or self.encounter_objective_visible())):
                         self._in_combat = True
                         self._boss_rotation_recoveries += 1
-                        self.log_info(f'Boss HP bar remains after {exc}; '
+                        self.log_info(f'Encounter remains active after {exc}; '
                                       f'recover rotation {self._boss_rotation_recoveries}')
-                        self.acquire_material_boss()
+                        if getattr(self, '_plan_boss', False):
+                            self.acquire_material_boss()
                         if self._battle_end_seen:
                             break
                         self.switch_next_char(char)
@@ -221,6 +166,9 @@ class VerifiedDomainCombat(NativeAttackCadence, MaterialBossGuard):
         if not self._verified_battle:
             return super().in_combat(target=target)
         self._raise_if_manual_exit_before_input()
+        self.observe_encounter_progress()
+        if time.monotonic() >= getattr(self, '_battle_hard_deadline', float('inf')):
+            self.fail_battle('battle reached its independent hard limit')
         if (getattr(self, '_boss_healing', False)
                 and time.monotonic() >= self._boss_heal_deadline):
             self.fail_battle('紧急治疗超时；返回信标')
@@ -277,6 +225,13 @@ class VerifiedDomainCombat(NativeAttackCadence, MaterialBossGuard):
         now = time.monotonic()
         if getattr(self, '_plan_boss', False) or now >= self._battle_hard_deadline:
             return False
+        tracker = getattr(self, '_encounter_progress', None)
+        if tracker is not None:
+            if not tracker.consume_extension(now):
+                return False
+            self._battle_deadline = min(now + 90, self._battle_hard_deadline)
+            self.log_info('domain timeout extended by fresh confirmed objective progress')
+            return True
         text = ''.join(b.name for b in self.ocr(0, .18, .30, .34))
         match = re.search(r'击败敌人[：:]?\s*(\d+)\s*/\s*(\d+)', text)
         if not match:

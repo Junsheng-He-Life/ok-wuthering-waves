@@ -4,7 +4,8 @@ run-name: Windows release · ${{ github.ref_name }}
 on:
   push:
     tags:
-      - 'v*'
+      # macOS beta tags are v0.x and ship a separate source/runtime bundle.
+      - 'v[1-9]*'
 
 concurrency:
   group: windows-release-${{ github.ref }}

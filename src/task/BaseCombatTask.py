@@ -20,7 +20,6 @@ from src.char.CharFactory import (
     get_char_by_pos,
 )
 from src.combat.CombatCheck import CombatCheck
-from src.combat.IntroSupportRotation import expired_echo_intro_healer
 from src.task.BaseWWTask import isolate_white_text_to_black, binarize_for_matching
 
 logger = Logger.get_logger(__name__)
@@ -177,14 +176,11 @@ class BaseCombatTask(CombatCheck):
         cds['liberation'] = 0
         cds['echo'] = 0
         cd_x = self._cd_ocr_relative_x
-        policy = getattr(self, 'allow_opportunistic_skills', None)
-        native_echo = sys.platform == 'darwin' and callable(policy) and policy() is True
-        # Native cooldown digits are gray-white: the >240 white isolation
-        # removes them and falsely clears the cooldown. Keep their original
-        # contrast for verified Echo combat; geometry and parsing stay shared.
-        processor = None if native_echo else isolate_white_text_to_black
+        # Native cooldown digits are gray-white. The legacy white-only mask
+        # erases them, turning a real cooldown into a false ready signal.
+        native = sys.platform == 'darwin' and getattr(self, '_verified_battle', False) is True
         texts = self.ocr(cd_x(0.82), 0.86, cd_x(0.97), 0.93,
-                         frame_processor=processor, match=cd_regex)
+                         frame_processor=None if native else isolate_white_text_to_black, match=cd_regex)
         for text in texts:
             cd = convert_cd(text)
             if text.x < self.width_of_screen(cd_x(0.86)):
@@ -541,11 +537,11 @@ class BaseCombatTask(CombatCheck):
         return self._switch_rule_3_target(candidates)
 
     def _choose_switch_target(self, current_char, has_intro, target_low_con=False):
-        now = time.monotonic()
+        allowed = getattr(self, 'rotation_candidate_allowed', None)
         candidates = [
             char for char in self.chars
             if char is not None and char != current_char
-            and now >= getattr(char, 'recovery_until', 0)
+            and (not callable(allowed) or allowed(char))
         ]
         if not candidates:
             return current_char
@@ -573,10 +569,6 @@ class BaseCombatTask(CombatCheck):
                 normal_targets.append(char)
 
         if has_intro:
-            if not must_targets:
-                healer = expired_echo_intro_healer(self, current_char, normal_targets)
-                if healer is not None:
-                    return healer
             return self._choose_intro_switch_target(must_targets, normal_targets) or current_char
 
         if must_targets:
@@ -1185,50 +1177,30 @@ class BaseCombatTask(CombatCheck):
 
     @staticmethod
     def is_sparse_con_ring_full(image, color_range):
-        """Require color around the circle, not just enough pixels in an arc.
+        """Recognize the newer thin segmented ring by colored-pixel density.
 
-        Current saved HUD frames place the ring a few pixels off the legacy
-        crop center. Fit that small displacement, then require every 15-degree
-        sector to contain ring color. A thick half ring must never count as a
-        full thin ring. Hue tolerates antialiasing, while the original strict
-        RGB density remains an independent color-evidence requirement.
+        The former contour test expects one convex connected component. The
+        current UI intentionally breaks the ring at several ticks, so a full
+        1920x1080 Fire ring contains about 26--35 exact-color pixels while a
+        partial ring contains about 13--18. Using a scale-independent annulus
+        density keeps the fallback valid at other resolutions.
         """
-        if image is None or min(image.shape[:2]) < 16:
-            return False
-        # Keep geometry and cost independent of capture resolution.
-        if image.shape[:2] != (63, 63):
-            image = cv2.resize(image, (63, 63), interpolation=cv2.INTER_AREA)
         lower_bound, upper_bound = color_range_to_bound(color_range)
-        strict = cv2.inRange(image, lower_bound, upper_bound) > 0
-        if not np.any(strict):
+        h, w = image.shape[:2]
+        center = (w // 2, h // 2)
+        inner_radius = int(h * 0.35119)
+        outer_radius = int(np.ceil(h * 0.42261))
+        ring_mask = np.zeros((h, w), dtype=np.uint8)
+        cv2.circle(ring_mask, center, outer_radius, 255, -1)
+        cv2.circle(ring_mask, center, inner_radius, 0, -1)
+        colored = cv2.inRange(image, lower_bound, upper_bound)
+        ring_pixels = cv2.countNonZero(ring_mask)
+        if ring_pixels <= 0:
             return False
-        midpoint = ((lower_bound.astype(float) + upper_bound) / 2).astype(np.uint8)
-        expected_hue = int(cv2.cvtColor(midpoint.reshape(1, 1, 3), cv2.COLOR_BGR2HSV)[0, 0, 0])
-        hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
-        hue_distance = np.abs(hsv[:, :, 0].astype(int) - expected_hue)
-        colored = ((np.minimum(hue_distance, 180 - hue_distance) <= 10)
-                   & (hsv[:, :, 1] >= 70) & (hsv[:, :, 2] >= 120))
-        yy, xx = np.indices((63, 63))
-        best_density, best = 0, None
-        for cy in range(23, 40):
-            for cx in range(23, 40):
-                radius_squared = (xx - cx) ** 2 + (yy - cy) ** 2
-                annulus = (radius_squared > 22 ** 2) & (radius_squared <= 27 ** 2)
-                density = np.mean(colored[annulus])
-                if density > best_density:
-                    best_density, best = density, (cx, cy, annulus)
-        if best is None:
-            return False
-        cx, cy, annulus = best
-        if np.mean(strict[annulus]) < .032:
-            return False
-        angle = np.mod(np.arctan2(yy - cy, xx - cx), 2 * np.pi)
-        sector = np.floor(angle * 24 / (2 * np.pi)).astype(int)
-        areas = np.bincount(sector[annulus], minlength=24)
-        counts = np.bincount(sector[annulus & colored], minlength=24)
-        # Relative coverage permits sparse ticked rings without accepting one
-        # stray colored pixel inside a substantial unfilled gray arc.
-        return bool(np.all(counts / np.maximum(areas, 1) >= .2 * best_density))
+        colored_pixels = cv2.countNonZero(
+            cv2.bitwise_and(colored, ring_mask)
+        )
+        return colored_pixels / ring_pixels >= 0.032
 
     def count_rings(self, image, color_range, min_area):
         """在指定图像区域内计算特定颜色范围的能量环数量和状态。

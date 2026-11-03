@@ -14,9 +14,6 @@ class Phrolova(BaseChar):
         return self.time_elapsed_accounting_for_freeze(self.last_liberation) < 2
 
     def do_perform(self):
-        policy = getattr(self.task, 'allow_opportunistic_skills', None)
-        opportunistic = callable(policy) and policy() is True
-        resonance_options = {'time_out': 1} if opportunistic else {}
         self.last_liberation = -1
         perform_under_outro = False
         self.sp = False
@@ -34,9 +31,7 @@ class Phrolova(BaseChar):
             return self.switch_next_char()
         if self.resonance_available() or self.res_ready:
             self.continues_normal_attack(0.1)
-            self.click_resonance(**resonance_options)
-            if opportunistic:
-                self.task.next_frame()
+            self.click_resonance()
             self.continues_normal_attack(0.1)
             self.task.wait_until(lambda: not self.resonance_available(), post_action=self.task.click, time_out=0.3)
             if not self.click_echo():
@@ -55,12 +50,9 @@ class Phrolova(BaseChar):
             if self.heavy_and_liber():
                 return self.switch_next_char()
             if self.resonance_available() and 1 < time.time() - start:
-                if perform_under_outro or opportunistic:
+                if perform_under_outro:
                     self.continues_normal_attack(0.3)
-                    issued = self.click_resonance(**resonance_options)[0]
-                    if opportunistic:
-                        self.task.next_frame()
-                    if issued:
+                    if self.click_resonance()[0]:
                         self.continues_normal_attack(0.1)
                         self.task.wait_until(lambda: not self.resonance_available(), post_action=self.task.click,
                                              time_out=0.3)

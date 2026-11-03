@@ -48,8 +48,7 @@ class Suisui(BaseChar):
         return issued
 
     def perform_forte3_rotation(self):
-        policy = getattr(self.task, 'allow_opportunistic_skills', None)
-        opportunistic = callable(policy) and policy() is True
+        self.click_echo(time_out=0)
         liberation_clicked = self.click_liberation(wait_if_cd_ready=0)
         start = time.time()
         if self.should_heavy:
@@ -85,10 +84,6 @@ class Suisui(BaseChar):
                     continue
             if self.is_con_full() and (self.forte3_available() or liberation_clicked):
                 return
-            if opportunistic and self.try_e():
-                # Enhanced E can become ready during the concerto fill too.
-                # Inspect its new HUD before the next opportunity decision.
-                self.task.next_frame()
             self.click(after_sleep=0.1)
         self.logger.warning('Suisui concerto fill timed out')
 

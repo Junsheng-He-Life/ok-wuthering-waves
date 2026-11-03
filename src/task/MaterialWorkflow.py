@@ -58,7 +58,7 @@ class MaterialWorkflow:
 
     def navigate_material(self):
         self.open_materials_book()
-        target = self.ensure_cultivation_target(self.expected_target if self.plan_job else 'Use current in-game target')
+        target = self.ensure_cultivation_target(self.expected_target)
         if self._normalize_material_text(target) != self._normalize_material_text(self.expected_target):
             raise RuntimeError('cultivation target changed; stop')
         preflight = getattr(self, 'preflight_material_job', None)
@@ -72,9 +72,13 @@ class MaterialWorkflow:
 
     def recover_material_battle(self):
         budget = getattr(self, '_run_budget', None)
-        if (getattr(self, '_plan_boss', False) and self.material_victory_visible()
+        if (self.phase != 'practice' and getattr(self, '_plan_boss', False) and self.material_victory_visible()
                 and budget is not None and budget.claimed == getattr(self, '_job_claimed_at_start', 0)):
             raise RuntimeError('已出现领取奖励目标但尚未结算；保留副本现场，禁止恢复流程退出')
+        if self.phase == 'practice':
+            dismiss = getattr(self, 'dismiss_unclaimed_reward_dialog', None)
+            if callable(dismiss):
+                dismiss()
         self.leave_verified_domain()
         self.heal_at_beacon()
 
@@ -148,6 +152,8 @@ class MaterialWorkflow:
                                                        budget, recover=self.restore_reward_dialog, retries=2)
                 batch_battles += 1
                 self.set_workflow_stage('结算')
+                if getattr(self, 'stop_after_current', False):
+                    break
                 if not self.try_repeat_material(budget, remaining, batch_battles):
                     break
             if battle_failed:
@@ -155,6 +161,10 @@ class MaterialWorkflow:
             # A failure after confirmed settlement retries only return/healing.
             self.run_recoverable_stage('返回', self.recover_material_battle, budget,
                                        recover=self.focus_material_menu, retries=1)
+            if getattr(self, 'stop_after_current', False):
+                self.result['status'] = 'stopped_after_current'
+                self.set_workflow_stage('本场结束后停止')
+                return
             if self.plan_job:
                 self.result['status'] = 'job_completed'
                 self.set_workflow_stage('完成')

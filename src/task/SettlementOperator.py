@@ -7,7 +7,6 @@ import time
 import cv2
 
 from src.task.CharacterMaterialTask import CharacterMaterialTask
-from src.combat.PortraitHealth import portrait_health
 
 
 class SettlementOperator:
@@ -18,16 +17,10 @@ class SettlementOperator:
         # a missed Liberation must not suspend attacks or health checks.
         return True
 
-    def healing_replacement_available(self, candidate):
-        self.next_frame()
-        ratios = portrait_health(self.frame) if self.in_team_and_world() else [None] * 3
-        ratio = ratios[candidate.index]
-        return ratio is not None and ratio >= .7
-
     def engage_visible_field_enemies(self):
-        if not self.in_team_and_world() or not self.original_combat_detected():
+        if not self.in_team_and_world() or not self.check_health_bar():
             return False
-        self.log_info('聚落原版接敌判断确认，接入材料战斗轮转')
+        self.log_info('聚落发现敌人血条，立即接入材料战斗轮转')
         self.fight_field_enemies()
         return True
 
@@ -41,9 +34,7 @@ class SettlementOperator:
     def fight_field_enemies(self):
         self._field_fight = True
         self._field_quiet_since = None
-        self._field_deadline = time.monotonic() + 300
-        self._field_counter_at = 0
-        self._field_extended_kills = -1
+        self._field_deadline = time.monotonic() + 90
         try:
             self.fight_verified_domain()
             self.result['battles'].append(self.rotation_events)
@@ -63,42 +54,20 @@ class SettlementOperator:
     def material_victory_visible(self):
         if not getattr(self, '_field_fight', False):
             return super().material_victory_visible()
-        if not self.in_team_and_world():
+        # Absence ends a combat segment, never proves a kill. The guidebook
+        # counter is checked separately before reporting settlement progress.
+        if self.check_health_bar() or not self.in_team_and_world():
+            self._field_quiet_since = None
             return False
         now = time.monotonic()
-        if now >= getattr(self, '_field_counter_at', 0):
-            self._field_counter_at = now + 1
-            count = self.settlement_counter([b.name for b in self.ocr(0, .35, .3, .48)])
-            self._field_counter = count
-            if count:
-                self.result['settlement_counter'] = count
-        count = getattr(self, '_field_counter', None)
-        # Neither clipped bars nor a single enemy's drop closes the settlement.
-        # The observed settlement HUD must explicitly reach its full kill count.
-        return bool(count and count[0] == count[1])
-
-    def resume_verified_rotation(self):
-        if (not getattr(self, '_field_fight', False) or not self.in_team_and_world()
-                or self.material_victory_visible() or not self.original_combat_detected()):
-            return False
-        self.native_attack_string(3)
-        self.log_info('聚落角色动作中断，原版接敌确认后续接普攻与材料轮转')
-        return True
-
-    def extend_domain_deadline(self):
-        if not getattr(self, '_field_fight', False):
-            return super().extend_domain_deadline()
-        count = getattr(self, '_field_counter', None)
-        if not count or count[0] <= self._field_extended_kills:
-            return False
-        self._field_extended_kills = count[0]
-        self._battle_deadline = min(time.monotonic() + 60, self._field_deadline)
-        return True
+        if self._field_quiet_since is None:
+            self._field_quiet_since = now
+        return now - self._field_quiet_since >= 2
 
     def in_combat(self, target=False):
         if (getattr(self, '_field_fight', False)
                 and time.monotonic() >= self._field_deadline):
-            self.fail_battle('聚落战斗达到300秒测试上限')
+            self.fail_battle('聚落单段战斗达到90秒测试上限')
         return super().in_combat(target=target)
 
     def require_field_hud(self):
@@ -194,8 +163,8 @@ class SettlementOperator:
                 self.sleep(.02)
         elif action == 'fight':
             self.require_field_hud()
-            if not self.original_combat_detected():
-                raise RuntimeError('原版接敌判断未确认目标；不启动聚落战斗')
+            if not self.check_health_bar():
+                raise RuntimeError('没有可见敌人血条；不启动聚落战斗')
             self.fight_field_enemies()
         elif action == 'pickup':
             self.require_field_hud()
@@ -226,10 +195,6 @@ class SettlementOperator:
         self._trial_map = False
         self.focus_material_menu()
         self.next_frame()
-        if self.menu_text(r'选择复苏物品', (.15, .1, .85, .35), timeout=.3):
-            self.send_key('esc', after_sleep=.5)
-            self.wait_in_team_and_world(time_out=10)
-            self.heal_at_beacon(force_teleport=True, verify_before=False)
         if self.menu_text(r'失去意识', (.3, .2, .7, .4), timeout=.3):
             self.save_settlement_view('defeated-before-recovery')
             self.menu_click(r'复苏', (.35, .8, .65, .92), timeout=1)
@@ -244,11 +209,6 @@ class SettlementOperator:
             else:
                 break
         self.return_to_world()
-        self.next_frame()
-        ratios = portrait_health(self.frame)
-        self.result['entry_portrait_health'] = ratios
-        if any(ratio is None or ratio < .85 for ratio in ratios):
-            self.heal_at_beacon(force_teleport=True, verify_before=False)
         if self.menu_text(r'下车.*|R下车.*', (.8, .75, 1, .85), timeout=.5):
             self.send_key('r', after_sleep=1)
         self.next_frame()

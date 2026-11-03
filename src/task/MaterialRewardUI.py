@@ -6,6 +6,30 @@ import cv2
 
 class MaterialRewardUI:
     @staticmethod
+    def reward_choice_from_texts(texts):
+        names = [re.sub(r'\s+', '', str(getattr(item, 'name', item))) for item in texts]
+        title = any(re.fullmatch(r'领取奖励|領取獎勵|ClaimRewards?', name, re.I) for name in names)
+        once = any(re.search(r'单倍领取|單倍領取|ClaimOnce', name, re.I) for name in names)
+        double = any(re.search(r'双倍领取|雙倍領取|ClaimDouble', name, re.I) for name in names)
+        return bool(title and once and double)
+
+    def reward_choice_dialog_current_frame(self):
+        """Read only the current frame; do not poll, press F, or select a claim."""
+        return self.reward_choice_from_texts(self.ocr(.2, .2, .8, .75) or [])
+
+    def dismiss_unclaimed_reward_dialog(self):
+        """Close a positively identified, uncommitted choice with Escape only."""
+        if getattr(getattr(self, '_run_budget', None), 'claim_pending', False):
+            raise RuntimeError('领奖消费待核对；不关闭选择窗')
+        for _ in range(2):
+            if not self.reward_choice_dialog_current_frame():
+                return
+            self.send_key('esc', after_sleep=.4)
+            self.next_frame()
+        if self.reward_choice_dialog_current_frame():
+            raise RuntimeError('领奖选择窗未关闭；未发送领取输入')
+
+    @staticmethod
     def weekly_reward_orb(frame):
         """Locate the observed blue reward orb after the objective confirms victory."""
         from pathlib import Path
@@ -130,11 +154,6 @@ class MaterialRewardUI:
             set_stage = getattr(self, 'set_workflow_stage', None)
             if set_stage:
                 set_stage('领奖', detail=f'{multiplier}倍 / {required}波片，当前{before}')
-            # Keep the pre-input evidence available to durable checkpoint
-            # owners. This does not acknowledge consumption or clear a guard.
-            self._claim_observation_context = {
-                'started_ns': time.time_ns(), 'stamina_before': before,
-                'expected_cost': required, 'multiplier': multiplier}
             budget.begin_claim(multiplier)
             if checkpoint:
                 checkpoint()
@@ -166,58 +185,18 @@ class MaterialRewardUI:
         """Retry observations only after confirmation; never click it again."""
         if not self.reward_text(r'挑战成功|ChallengeCompleted|ChallengeSuccess', (.2, .1, .8, .4), timeout=8):
             raise RuntimeError('settlement uncertain; claim will not be retried')
-        expected = budget.claim_cost * budget.claim_multiplier
-        saw_number = False
-        for attempt in range(1, 4):
+        for _ in range(3):
             remaining = self.reward_text(r'剩余\d+|Remaining\d+', (.5, .8, .8, 1), timeout=2)
-            after = None
             if remaining:
                 after = int(re.search(r'\d+', remaining.name).group())
-                saw_number = True
-            delta = before - after if after is not None else None
-            matched = delta in (expected - 1, expected)
-            self.record_reward_observation(
-                attempt=attempt, before=before, after=after,
-                raw=getattr(remaining, 'name', None), expected=expected, matched=matched)
-            if matched:
                 self._last_claim_stamina = (before, after)
                 budget.finish_claim(before, after)
                 if checkpoint:
                     checkpoint()
                 self.log_info(f'claimed {budget.claim_multiplier} unit(s): stamina {before} -> {after}; units {budget.claimed}')
                 return after
-            # The settlement animation or OCR may briefly yield a number
-            # whose debit is wrong. Observe a fresh frame; never press claim.
-            if attempt < 3:
-                self.next_frame()
-        if saw_number:
-            raise RuntimeError('reward stamina delta uncertain after 3 observations; never retry claim')
+            self.next_frame()
         raise RuntimeError('remaining stamina not readable; stop without retry')
-
-    def record_reward_observation(self, *, attempt, before, after, raw, expected, matched):
-        """Persist the already captured frame and numeric evidence, without input."""
-        from pathlib import Path
-        from src.task.MaterialActivity import _atomic_json
-        record = {'attempt': attempt, 'stamina_before': before, 'stamina_after': after,
-                  'raw': raw, 'expected_cost': expected,
-                  'observed_delta': before - after if after is not None else None,
-                  'matched': matched, 'observed_ns': time.time_ns()}
-        observations = getattr(self, '_reward_result_observations', None)
-        if not isinstance(observations, list):
-            observations = self._reward_result_observations = []
-        observations.append(record)
-        result = getattr(self, 'result', None)
-        if isinstance(result, dict):
-            result.setdefault('reward_observations', []).append(record)
-        self.log_info(f'reward result observation: {record}')
-        frame = getattr(self, 'frame', None)
-        if getattr(frame, 'size', 0):
-            folder = Path('logs/reward-results')
-            folder.mkdir(parents=True, exist_ok=True)
-            image_path = folder / f'{record["observed_ns"]}.png'
-            if cv2.imwrite(str(image_path), frame):
-                record['image'] = str(image_path)
-            _atomic_json(image_path.with_suffix('.json'), record)
 
     @staticmethod
     def reward_step(x, y, width, height):

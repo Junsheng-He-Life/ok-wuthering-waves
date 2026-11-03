@@ -1,8 +1,8 @@
 name: Run Tests
 
-on:
-  pull_request:
-    types: [ opened, synchronize ]
+# Retain the inherited Windows build as a manual task. This macOS fork runs
+# the matched two-repository public suite in macos-beta-public.yml on PRs.
+on: workflow_dispatch
 
 permissions:
   contents: read
