@@ -51,7 +51,9 @@ def inspect_environment(root):
             errors.append('当前锁定依赖需要 macOS 14 或更新版本；尚未完成其他系统的实机验收。')
     if sys.version_info[:2] != (3, 13):
         errors.append('当前内测包需要 Python 3.13 创建的专用 .venv。')
-    if sys.prefix == sys.base_prefix:
+    runtime = Path(os.environ.get('OKWW_RUNTIME_ROOT', '/nonexistent-okww-runtime'))
+    bundled = (runtime / 'okww-runtime.json').is_file() and Path(sys.executable).resolve() == (runtime / 'bin/python3.13').resolve()
+    if sys.prefix == sys.base_prefix and not bundled:
         errors.append('当前解释器不是虚拟环境；请使用项目 .venv 或相邻 ok-script/.venv313。')
     for base, paths in ((root, PROJECT_FILES), (framework, FRAMEWORK_FILES)):
         for relative in paths:

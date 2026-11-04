@@ -118,6 +118,16 @@ class TestReleaseWorkflow(unittest.TestCase):
                 self.assertEqual(b'preserve',old.read_bytes())
             finally:os.chdir(original)
 
+    def test_frame_write_failure_uses_supported_logger_and_keeps_loop_alive(self):
+        from src.task.CharacterMaterialTask import CharacterMaterialTask
+        task=CharacterMaterialTask.__new__(CharacterMaterialTask)
+        task._combat_debug_frame_stop=SimpleNamespace(is_set=lambda:False,wait=Mock(return_value=True))
+        task._capture_combat_debug_frame=Mock(side_effect=RuntimeError('simulated write failure'))
+        with patch('src.task.CharacterMaterialTask.logger',spec=['error']) as logger:
+            task._combat_debug_frame_recording_loop()
+        logger.error.assert_called_once()
+        task._combat_debug_frame_stop.wait.assert_called_once()
+
     def test_mornye_unconfirmed_e_leaves_normal_attack_available_and_backs_off(self):
         char=Mornye.__new__(Mornye);char.resonance_available=Mock(return_value=True)
         char.send_resonance_key=Mock();char.task=SimpleNamespace(next_frame=Mock())

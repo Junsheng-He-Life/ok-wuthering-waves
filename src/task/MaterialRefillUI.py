@@ -30,6 +30,15 @@ class MaterialRefillUI:
         self.click_box(box, after_sleep=.6)
 
     def assert_no_pending_refill(self):
+        cultivation = Path('configs/macos-desktop/cultivation-progress.json')
+        if cultivation.exists():
+            try:
+                record = json.loads(cultivation.read_text())
+                pending = record['budget']['claim_pending']
+            except (OSError, ValueError, KeyError, TypeError):
+                raise RefillOutcomeUncertain('培养计划记录无法核对；禁止开始新一轮')
+            if pending:
+                raise RefillOutcomeUncertain('培养计划有待核对领奖；禁止重复消费')
         if Path('logs/echo-claim-pending.json').exists():
             raise RefillOutcomeUncertain('上次声骸领奖结果未核对；禁止开始新一轮')
         if self.refill_pending_path.exists() or Path("logs/solvent-use-pending.json").exists():

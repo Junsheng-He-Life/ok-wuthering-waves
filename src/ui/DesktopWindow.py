@@ -4,13 +4,14 @@ from pathlib import Path
 import time
 
 from PySide6.QtCore import Qt, QUrl
-from PySide6.QtGui import QDesktopServices
+from PySide6.QtGui import QDesktopServices, QKeySequence, QShortcut
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QFileDialog,
     QFormLayout, QHBoxLayout, QLabel, QListWidget, QListWidgetItem,
     QMainWindow, QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSpinBox,
     QTabWidget, QVBoxLayout, QWidget)
 
 from src.runtime.DesktopJobs import DesktopRequest, TASKS, action_arguments
+from src.runtime.CultivationPolicy import CULTIVATION_KINDS, cultivation_kinds
 from src.runtime.DesktopUserState import inspect_user_state, initialize_new_install
 from src.runtime.DesktopRecovery import export_diagnostics
 from src.ui.DesktopProcess import DesktopProcess
@@ -24,7 +25,7 @@ class DesktopWindow(QMainWindow):
         super().__init__()
         self.root, self.preview = Path(root), preview
         self.closing = False
-        self.setWindowTitle('OK-WW 鸣潮助手 · 0.1.0-beta.2')
+        self.setWindowTitle('OK-WW 鸣潮助手 · 0.1.0-beta.3')
         self.setStyleSheet(STYLE)
         self.resize(1060, 780)
         self.setMinimumSize(840, 600)
@@ -79,10 +80,26 @@ class DesktopWindow(QMainWindow):
             for row in sorted(characters,key=lambda row:row['name']):selector.addItem(row['name'],row['name'])
             target_layout.addWidget(selector);self.role_selectors.append(selector)
         self.target_scope.currentIndexChanged.connect(self.target_scope_changed)
+        # Native macOS accessibility can expose a combo without a working
+        # press action. Offer ordinary window-local focus shortcuts as well.
+        self.selection_shortcuts=[]
+        for sequence,control in [('Ctrl+Alt+T',self.target_scope)]+[
+                (f'Ctrl+Alt+{index+1}',selector) for index,selector in enumerate(self.role_selectors)]:
+            shortcut=QShortcut(QKeySequence(sequence),self)
+            shortcut.activated.connect(control.setFocus)
+            native_sequence=QKeySequence(sequence).toString(QKeySequence.NativeText)
+            control.setToolTip(f'键盘选择：{native_sequence}，然后用方向键选择')
+            self.selection_shortcuts.append(shortcut)
+        self.project_choices=QWidget();choices=QHBoxLayout(self.project_choices)
+        choices.setContentsMargins(0,0,0,0)
+        self.cultivation_checks={}
+        for name in CULTIVATION_KINDS:
+            check=QCheckBox(name);check.setChecked(name=='声骸')
+            choices.addWidget(check);self.cultivation_checks[name]=check
         self.claim=QCheckBox('领取波片奖励（默认关闭）')
         self.runs=self.spin(100,1,1);self.waveplates=self.spin(4000,120)
         self.reserve=self.spin(240);self.solvents=self.spin(133)
-        for text,widget in [('任务类型',self.kind),('指定副本',self.stage),('培养角色',self.target),
+        for text,widget in [('任务类型',self.kind),('指定副本',self.stage),('培养角色',self.target),('刷取项目',self.project_choices),
                             ('领奖',self.claim),('最多场数 / 奖励份数',self.runs),('波片消费上限',self.waveplates),
                             ('储备波片上限',self.reserve),('溶剂使用上限（个）',self.solvents)]:form.addRow(text,widget)
         self.hint=QLabel();self.hint.setWordWrap(True);layout.addWidget(self.hint)
@@ -90,7 +107,7 @@ class DesktopWindow(QMainWindow):
                     '双倍领取算2份；任一额度用尽即停止。不领奖时，上面的数量是战斗场数，所有消费额度强制为0。')
         note.setWordWrap(True);layout.addWidget(note)
         actions=QHBoxLayout();layout.addLayout(actions)
-        self.catalog=self.button('读取关卡 / 材料需求',lambda:self.action('catalog'),actions)
+        self.catalog=self.button('读取关卡 / 培养需求',lambda:self.action('catalog'),actions)
         self.team_button=self.button('读取当前队伍',lambda:self.action('team'),actions)
         self.recover=self.button('返回并治疗',lambda:self.action('recover'),actions)
         self.team=QLabel('实际队伍：尚未读取');self.team.setWordWrap(True);layout.addWidget(self.team)
@@ -136,12 +153,13 @@ class DesktopWindow(QMainWindow):
     def kind_changed(self, *_):
         kind=self.kind.currentData();self.stage.clear();self.stage.setEnabled(kind!='materials')
         self.target.setEnabled(kind in ('materials','material_stage'))
-        self.stage.addItem('请先点击“读取关卡 / 材料需求”','')
+        self.project_choices.setVisible(kind=='materials')
+        self.stage.addItem('按勾选项目和角色推荐自动选择' if kind=='materials' else '请先点击“读取关卡 / 培养需求”','')
         if kind=='material_stage':self.target_scope.setCurrentIndex(1)
         self.target_scope.setEnabled(kind!='material_stage')
         self.target_scope_changed()
         self.hint.setText('从列表选择副本和一名培养角色；战斗使用游戏当前队伍。名单表示已适配角色，是否拥有由控制器在游戏中核对。' if kind=='material_stage' else
-                          '选择当前三人或指定培养角色，扫描实际材料需求。此模式需要开启领奖；只测试请选择指定材料副本。' if kind=='materials' else
+                          '所有目标角色共用勾选项目。只选声骸时，只读指南推荐的无音区；未勾选材料不刷。关闭领奖可做零消费练习。' if kind=='materials' else
                           '从当前账号读取关卡列表。已有适配的Boss才能进入；未知策略会在控制器内停止。')
         self.budget_changed()
 
@@ -158,6 +176,10 @@ class DesktopWindow(QMainWindow):
         if any(not name for name in names):raise ValueError('请从列表选择完整的培养角色。')
         return ','.join(names)
 
+    def selected_projects(self):
+        if self.kind.currentData()!='materials':return None
+        return cultivation_kinds([name for name,check in self.cultivation_checks.items() if check.isChecked()])
+
     def refresh_state(self):
         self.state=inspect_user_state(self.root)
         self.setup_state.setText(self.state['title']+'\n'+self.state['message'])
@@ -172,7 +194,8 @@ class DesktopWindow(QMainWindow):
 
     def action(self, name):
         if not self.guard():return
-        try:self.begin(action_arguments(name,self.kind.currentData(),self.target_names() if self.target.isEnabled() else ''),name)
+        try:self.begin(action_arguments(name,self.kind.currentData(),self.target_names() if self.target.isEnabled() else '',
+                                       self.selected_projects() if name=='catalog' else None),name)
         except (ValueError,RuntimeError) as error:self.message(str(error))
 
     def start_run(self):
@@ -183,7 +206,7 @@ class DesktopWindow(QMainWindow):
         try:
             request=DesktopRequest(kind=self.kind.currentData(),stage=self.stage.currentData() or '',target=self.target_names() if self.target.isEnabled() else '',
                 runs=self.runs.value(),waveplates=self.waveplates.value(),reserve=self.reserve.value(),
-                solvents=self.solvents.value(),claim_rewards=self.claim.isChecked())
+                solvents=self.solvents.value(),claim_rewards=self.claim.isChecked(),cultivation_selection=self.selected_projects())
             if request.claim_rewards and request.solvents and not self.state.get('can_use_solvents'):
                 raise ValueError('历史资源账本未核实，不能使用溶剂。')
             args=request.arguments((self.state.get('ledger') or {}).get('solvents_used',0))
@@ -214,6 +237,12 @@ class DesktopWindow(QMainWindow):
         self.pause.setEnabled(False);self.after.setEnabled(False);self.stop.setEnabled(False)
         self.status.setText(f"{result.get('status','未知')} · {result.get('error') or result.get('message') or '本轮结果已保存'}")
         if result.get('desktop_action')=='catalog':
+            if 'selected_kinds' in result:
+                self.live.appendPlainText('培养项目：'+'、'.join(result['selected_kinds'])+'\n'+
+                    '\n'.join(f"{row['target']} · {row['kind']} · "+
+                              (row.get('deferred_reason') or row.get('route',{}).get('fallback_stage_name') or
+                               ('需求已满足' if row.get('satisfied') else '按实时培养需求'))
+                              for row in result.get('catalog',[])))
             rows=result.get('locations',result.get('rows',[]))
             names=list(dict.fromkeys(r.get('name','') for r in rows if r.get('name')))
             if names:

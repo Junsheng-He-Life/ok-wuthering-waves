@@ -1,4 +1,17 @@
-# 0.1.0-beta.2 开发与公开验证
+# 0.1.0-beta.3 开发与公开验证
+
+独立 App 构建：先导出本版配套源码包，再在锁定依赖的 Python 3.13 环境中运行：
+
+```bash
+PYTHONPATH=../ok-script:. ../ok-script/.venv313/bin/python scripts/build_macos_app.py --source dist/ok-ww-macos-beta-0.1.0-beta.3 --output 'dist/app/OK-WW 鸣潮助手.app'
+QT_QPA_PLATFORM=offscreen 'dist/app/OK-WW 鸣潮助手.app/Contents/MacOS/OK-WW' --self-test /private/tmp/okww-clean-test
+```
+
+构建验证每个 wheel 的锁定版本，打包其资源和许可证；内置 Python 标准库，剥离非 arm64 切片，将二进制依赖改为包内相对路径，并拒绝用户目录、Homebrew 等外部动态库依赖。预编译 Swift helper，逐个签名二进制及嵌套 framework，最后验证完整 App 签名。当前仅 ad-hoc 签名，不能将其描述为 Apple 公证通过。
+
+构建还逐一检查 Mach-O 最低系统版本，不能只相信 wheel 文件名。发布环境的 OpenCC 1.2.0 原二进制要求 macOS 26；须使用同版本源码、macOS 14 部署目标重新构建 wheel，并传入 `--wheel /path/to/opencc-1.2.0-....whl`。重建不改依赖版本，不覆盖开发环境；App 内记录 wheel SHA256。未使用的 Qt SQL 驱动因依赖外部数据库而不打包。
+
+`--self-test` 只向指定临时目录安装脱敏源码、离线诊断、渲染 GUI、验证子进程依赖，不连接游戏或请求系统权限。测试升级时应保留账本和 pending 文件；移动 App 后重复自测。最后用 `ditto -c -k --sequesterRsrc --keepParent` 制作 ZIP，重新解压后核对签名和自测。
 
 Release完整附件包含两个配套项目。源码开发时把同标签的ok-wuthering-waves与ok-script克隆到相邻目录；在应用目录运行`python3.13 scripts/bootstrap_macos.py`。安装不会启动游戏。
 

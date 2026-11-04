@@ -10,10 +10,11 @@ from pathlib import Path
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--phase', choices=('inspect', 'scan', 'enter', 'combat', 'resume', 'basic', 'approach', 'team', 'heal', 'recover', 'loop', 'practice', 'claim', 'plan', 'catalog', 'echo', 'echo-catalog', 'echo-inventory', 'settlement-catalog', 'settlement-enter', 'settlement-travel', 'settlement-test', 'refill-inspect', 'solvent-reconcile', 'stamina-read', 'hud-diagnostic', 'menu-return', 'weekly-inspect', 'synthesis-inspect', 'synthesis-recipe-inspect', 'recipe-audit', 'cultivation-inspect', 'boss-record', 'material-audit', 'stage-catalog'), default='inspect')
+    parser.add_argument('--phase', choices=('inspect', 'scan', 'enter', 'combat', 'resume', 'basic', 'approach', 'team', 'heal', 'recover', 'loop', 'practice', 'claim', 'plan', 'catalog', 'echo', 'echo-catalog', 'echo-inventory', 'cultivation', 'cultivation-catalog', 'settlement-catalog', 'settlement-enter', 'settlement-travel', 'settlement-test', 'refill-inspect', 'solvent-reconcile', 'stamina-read', 'hud-diagnostic', 'menu-return', 'weekly-inspect', 'synthesis-inspect', 'synthesis-recipe-inspect', 'recipe-audit', 'cultivation-inspect', 'boss-record', 'material-audit', 'stage-catalog'), default='inspect')
     parser.add_argument('--echo-mode', choices=('boss', 'tacet', 'material'), default='boss',
                         help='Boss echoes/materials or Tacet rewards, within spending caps')
     parser.add_argument('--echo-no-claim', action='store_true', help='Absorb only; no rewards or refills')
+    parser.add_argument('--cultivation-kinds', default='', help='Explicit shared cultivation categories, comma separated')
     parser.add_argument('--runs', type=int, default=2)
     parser.add_argument('--reserve-limit', type=int, default=0)
     parser.add_argument('--solvent-limit', type=int, default=0)
@@ -31,10 +32,22 @@ def main():
     parser.add_argument('--stop-request', type=Path)
     parser.add_argument('--current-team-targets', action='store_true')
     args = parser.parse_args()
+    if args.phase in ('cultivation', 'cultivation-catalog'):
+        root = Path(__file__).resolve().parents[1]
+        sys.path.insert(0, str(root))
+        from src.runtime.CultivationPolicy import cultivation_kinds
+        from src.runtime.DesktopJobs import targets
+        try:
+            selection = cultivation_kinds(args.cultivation_kinds)
+            targets(args.targets or args.target)
+            if args.targets and args.target:
+                raise ValueError('培养目标不能同时使用 --target 和 --targets。')
+        except ValueError as exc:
+            parser.error(str(exc))
     if args.solvent_total is not None and args.solvent_total < 0:
         parser.error('solvent total must be non-negative')
-    if args.phase == 'echo':
-        if not args.stage.strip() or not 1 <= args.runs <= 100:
+    if args.phase in ('echo', 'cultivation', 'cultivation-catalog'):
+        if not 1 <= args.runs <= 100 or args.phase == 'echo' and not args.stage.strip():
             parser.error('echo requires --stage and --runs 1..100')
         if not (0 <= args.max_stamina <= 4000 and 0 <= args.reserve_limit <= 240
                 and 0 <= args.solvent_limit <= 133):
@@ -71,6 +84,12 @@ def main():
     if args.phase in ('echo', 'echo-catalog', 'echo-inventory'):
         from src.task.EchoFarmTask import BossEchoTask, TacetEchoTask, MaterialStageTask
         MaterialTrialTask = {'boss':BossEchoTask,'tacet':TacetEchoTask,'material':MaterialStageTask}[args.echo_mode]
+
+    if args.phase in ('cultivation', 'cultivation-catalog'):
+        from src.task.CultivationTask import CultivationTask
+        MaterialTrialTask = CultivationTask
+        MaterialTrialTask.cultivation_selection = selection
+        MaterialTrialTask.cultivation_targets = args.targets or args.target
 
     if args.phase in ('settlement-catalog', 'settlement-enter', 'settlement-travel', 'settlement-travel', 'settlement-test'):
         from src.task.SettlementTrialTask import SettlementTrialTask
@@ -133,7 +152,7 @@ def main():
             task.config['累计溶剂授权上限'] = args.solvent_total
         if args.boss_context:
             task._plan_boss = True
-        if args.phase in ('echo', 'echo-catalog', 'echo-inventory'):
+        if args.phase in ('echo', 'echo-catalog', 'echo-inventory', 'cultivation', 'cultivation-catalog'):
             task.echo_stage_override = args.stage
             task.config['本次战斗上限'] = args.runs
             task.config.update({'战后领奖': not args.echo_no_claim,

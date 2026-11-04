@@ -2,6 +2,7 @@
 import time
 from src.combat.BattleEvidence import BattleEvidence
 from src.combat.BossHealthReading import BossHealthReading
+from src.combat.HealingVerification import conservative_hp_reference, verified_healing_maximum
 
 
 class BossHealRequested(Exception):
@@ -175,7 +176,10 @@ class MaterialBossHealing(BossHealthReading, BattleEvidence):
                     self.fail_battle('治疗技能未成功释放；保持治疗角色并返回信标')
             self.healing_switch(injured)
             readings = []
+            maximum_samples = []
+            previous_reference = request.hp
             def recovered():
+                nonlocal previous_reference
                 self.next_frame()
                 hp = self.read_boss_hp()
                 if hp and self.in_team()[1] == request.slot:
@@ -183,8 +187,25 @@ class MaterialBossHealing(BossHealthReading, BattleEvidence):
                     if hp[0] <= .2 * hp[1]:
                         self.fail_battle('治疗验证期间生命危急；返回信标')
                     if getattr(self, '_hp_observation', {}).get('approximate_portrait_hp'):
+                        maximum_samples.clear()
+                        readings.clear()
                         return False  # A coarse bar cannot prove numeric healing ticks.
-                    return self.healing_progress(request.hp, readings, hp)
+                    reference = request.hp
+                    if hp[1] != request.hp[1]:
+                        if not verified_healing_maximum(
+                                hp, request.slot, getattr(self, '_hp_observation', None), maximum_samples):
+                            readings.clear()
+                            return False
+                        reference = conservative_hp_reference(request.hp, hp[1])
+                        event['max_hp_change'] = {'before': request.hp[1], 'after': hp[1],
+                                                  'verified_capture_sequences': [s[0] for s in maximum_samples],
+                                                  'conservative_reference': reference}
+                    else:
+                        maximum_samples.clear()
+                    if reference != previous_reference:
+                        readings.clear()
+                        previous_reference = reference
+                    return self.healing_progress(reference, readings, hp)
                 return False
             if not self.wait_until(recovered, time_out=4, raise_if_not_found=False):
                 self.fail_battle('原受伤角色回血未确认；返回信标')
