@@ -197,10 +197,10 @@ class CharacterMaterialTask(DomainTask):
             started_at = time.monotonic()
             try:
                 self._capture_combat_debug_frame()
-            except Exception:
-                logger.exception(
-                    'failed to save character material combat frame'
-                )
+            except Exception as error:
+                # ok.Logger has error(), not logging.Logger.exception(). A
+                # failed write must not terminate the existing recorder.
+                logger.error(f'failed to save character material combat frame: {error!r}')
             remaining = interval - (time.monotonic() - started_at)
             if stop_event.wait(max(0, remaining)):
                 break

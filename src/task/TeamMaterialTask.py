@@ -98,7 +98,7 @@ class TeamMaterialTask(TeamMaterialEntry, SafeMaterialTask):
             self.sleep(.8)
             self.next_frame()
 
-    def scan_required_jobs(self, names):
+    def scan_required_jobs(self, names, selected_kinds=None, shared_plan=True):
         from src.task.CultivationTargetUI import viewport, required_jobs, supplement_weekly_counts
         jobs = []
         self.open_materials_book()
@@ -138,10 +138,11 @@ class TeamMaterialTask(TeamMaterialEntry, SafeMaterialTask):
             temporary = history_path.with_suffix('.tmp')
             temporary.write_text(json.dumps(list(records.values()), ensure_ascii=False))
             temporary.replace(history_path)
-            jobs.extend(observed)
+            jobs.extend(row for row in observed
+                        if selected_kinds is None or row['kind'] in selected_kinds)
             self.log_info(f'cultivation needs {name}: {observed}')
         from src.task.SharedMaterialPlanner import apply_shared_material_plan
-        return apply_shared_material_plan(jobs)
+        return apply_shared_material_plan(jobs) if shared_plan else jobs
 
     def refresh_changed_targets(self, jobs, targets):
         """Read only farmed targets; retain verified needs for unchanged roles."""

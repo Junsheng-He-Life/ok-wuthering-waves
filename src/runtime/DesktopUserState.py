@@ -21,7 +21,8 @@ PENDING = ('logs/echo-claim-pending.json', 'logs/refill-use-pending.json',
            'logs/solvent-use-pending.json')
 PROGRESS = ('configs/macos-desktop/team-material-needs-progress.json',
             'configs/macos-desktop/team-material-progress.json',
-            'configs/macos-desktop/echo-progress.json')
+            'configs/macos-desktop/echo-progress.json',
+            'configs/macos-desktop/cultivation-progress.json')
 
 
 def read_json_record(path, limit=2_000_000):
@@ -58,13 +59,13 @@ def pending_records(root):
 
 
 def _history_exists(root):
-    exact = (*PROGRESS, 'logs/material-latest.json', 'logs/echo-latest.json',
+    exact = (*PROGRESS, 'logs/material-latest.json', 'logs/echo-latest.json', 'logs/cultivation-latest.json',
              'logs/team-material-latest.json', 'logs/material-status/activity.json')
     if any((root / name).exists() or (root / name).is_symlink() for name in exact):
         return True
     # Legacy/reconciled records are evidence that this is not a blank install.
     for folder, patterns in ((root / 'logs', ('*pending*.json', '*reconciled*.json',
-                                            'echo-*.json', 'material-*.json', 'team-material-*.json')),
+                                            'echo-*.json', 'material-*.json', 'team-material-*.json', 'cultivation-*.json')),
                              (root / 'logs/reconciled', ('*.json',)),
                              (root / 'configs/macos-desktop', ('*activity*', '*progress*'))):
         if folder.is_dir() and any(next(folder.glob(pattern), None) is not None for pattern in patterns):

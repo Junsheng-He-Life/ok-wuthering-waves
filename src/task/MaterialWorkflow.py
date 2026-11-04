@@ -131,7 +131,7 @@ class MaterialWorkflow:
                     battle_failed = True
                     break
                 self.result['battles'].append(self.rotation_events)
-                if getattr(self, '_plan_boss', False):
+                if getattr(self, '_plan_boss', False) and getattr(self, 'collect_material_echoes', True):
                     self.set_workflow_stage('搜索声骸')
                     absorbed, multiple = self.yolo_find_echo(
                         turn=True, use_color=False, time_out=25, threshold=.5)
