@@ -22,7 +22,10 @@ MACHO = {b'\xcf\xfa\xed\xfe', b'\xce\xfa\xed\xfe', b'\xca\xfe\xba\xbe', b'\xca\x
 
 
 def run(*command):
-    return subprocess.check_output([str(x) for x in command], text=True, stderr=subprocess.STDOUT)
+    try:
+        return subprocess.check_output([str(x) for x in command], text=True, stderr=subprocess.STDOUT)
+    except subprocess.CalledProcessError as error:
+        raise RuntimeError(f'{command[0]} failed:\n{error.output}') from error
 
 
 def copy_runtime(runtime):
@@ -138,7 +141,6 @@ def relocate(path, original, runtime):
         changes.extend(['-id', '@loader_path/' + path.name])
     if changes:
         run('install_name_tool', *changes, path)
-    run('codesign', '--force', '--sign', '-', path)
 
 
 def build(source, output, version, wheels=()):
@@ -191,6 +193,12 @@ def seal_bundle(source, output, version, base):
     print(f'Relocating and signing {len(binaries)} binaries', flush=True)
     with ThreadPoolExecutor(max_workers=8) as pool:
         list(pool.map(lambda p: relocate(p, base, runtime), binaries))
+    # Finish all binary edits before sealing anything. Signing a bundle's main
+    # executable can seal its enclosing bundle, so sign those only in the
+    # ordered nested-bundle pass below (and the final top-level App pass).
+    ordinary = [p for p in binaries if not (p.parent.name == 'MacOS' and p.parent.parent.name == 'Contents')]
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        list(pool.map(lambda p: run('codesign', '--force', '--sign', '-', p), ordinary))
     nested = sorted((p for p in contents.rglob('*') if p.is_dir() and p.suffix in ('.framework', '.app', '.bundle')),
                     key=lambda p: len(p.parts), reverse=True)
     for path in nested:
